@@ -130,9 +130,28 @@ export class AuthService extends ClientListener {
 
     const settingsGameData = this.sp.settings["skymp5-client"]["gameData"] as any;
     const isOfflineMode = Number.isInteger(settingsGameData?.profileId);
+    const hasLauncherSession = typeof settingsGameData?.session === "string" && settingsGameData.session.length > 0;
     if (isOfflineMode) {
       logTrace(this, `Offline mode detected in settings, emitting auth event with authGameData.local`);
       this.controller.emitter.emit("authAttempt", { authGameData: { local: { profileId: settingsGameData.profileId } } });
+    } else if (hasLauncherSession) {
+      // The Hearthheld launcher already completed Discord sign-in and exchanged it for a play
+      // session (see launcher/src/main/discordAuth.ts). The in-game browser overlay's own OAuth
+      // flow needs to open the master URL directly, which is plain HTTP over ZeroTier by design,
+      // and the native URL opener refuses non-https:// URLs — so skip it and use the session the
+      // launcher already obtained instead of asking the player to sign in a second time.
+      logTrace(this, `Launcher-provided session found in settings, emitting auth event with authGameData.remote`);
+      this.controller.emitter.emit("authAttempt", {
+        authGameData: {
+          remote: {
+            session: settingsGameData.session,
+            masterApiId: settingsGameData.masterApiId,
+            discordUsername: settingsGameData.discordUsername ?? null,
+            discordDiscriminator: null,
+            discordAvatar: settingsGameData.discordAvatar ?? null,
+          },
+        },
+      });
     } else {
       logTrace(this, `No offline mode detectted in settings, regular auth needed`);
       this.setListenBrowserMessage(true, 'authNeeded event received');
