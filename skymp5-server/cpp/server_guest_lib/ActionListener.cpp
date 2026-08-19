@@ -1116,7 +1116,14 @@ void ActionListener::OnUpdateAnimVariables(
 {
   const MpActor* myActor = partOne.serverState.ActorByUser(rawMsgData.userId);
   if (!myActor) {
-    throw std::runtime_error("Unable to change values without Actor attached");
+    // Not an error. A gamemode can legitimately hold a logged in player
+    // without an actor, which is what deferSpawnToGamemode does to show a
+    // character screen before anyone enters the world. The client keeps
+    // ticking and sending animation updates throughout, so throwing here
+    // logged roughly twice a second for as long as the player was choosing,
+    // and indefinitely if they walked away. There is nothing to forward to
+    // neighbours when the player has no actor, so drop it quietly.
+    return;
   }
 
   SendToNeighbours(myActor->idx, rawMsgData);
