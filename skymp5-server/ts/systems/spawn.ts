@@ -16,6 +16,21 @@ export class Spawn implements System {
     const settingsObject = await Settings.get();
     const listenerFn = (userId: number, userProfileId: number, discordRoleIds: string[], discordId?: string) => {
       const { startPoints } = settingsObject;
+
+      // Hand the whole thing to the gamemode so it can put a character screen
+      // in front of the player before anyone enters the world. Spawning here
+      // first would mean the player is already playing a character by the time
+      // they get to choose, which is the problem this avoids.
+      if (settingsObject.allSettings?.["deferSpawnToGamemode"] === true) {
+        const deferred = (ctx.svr as any)._onSpawnDeferred;
+        if (typeof deferred === "function") {
+          deferred(userId, userProfileId, discordRoleIds, discordId);
+          return;
+        }
+        // No handler registered, so fall through rather than strand the player
+        // at a loading screen with nothing coming.
+      }
+
       // TODO: Show race menu if character is not created after relogging
       let actorId = ctx.svr.getActorsByProfileId(userProfileId)[0];
       if (actorId) {

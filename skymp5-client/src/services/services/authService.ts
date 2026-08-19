@@ -669,7 +669,26 @@ export class AuthService extends ClientListener {
     logError(this, 'Not found authentication method');
   };
 
+  /**
+   * Held true while the server is deliberately keeping the player out of the
+   * world, which Hearthheld does to show a character screen before anyone
+   * spawns. Without this the timeout below fires mid-decision, closes the
+   * connection and tells the player there were technical difficulties.
+   */
+  public setSpawnDeferred(deferred: boolean): void {
+    this.spawnDeferred = deferred;
+    if (!deferred) {
+      // Restart the clock so the wait for the chosen character to appear gets
+      // a full window rather than whatever was left over.
+      this.loggingStartMoment = Date.now();
+    }
+  }
+
   private onTick() {
+    if (this.spawnDeferred) {
+      return;
+    }
+
     // TODO: Should be no hardcoded/magic-number limit
     // TODO: Busy waiting is bad. Should be replaced with some kind of event
     const maxLoggingDelay = 15000;
@@ -737,6 +756,7 @@ export class AuthService extends ClientListener {
   private discordAuthState = crypto.randomBytes(32).toString('hex');
   private authDialogOpen = false;
 
+  private spawnDeferred = false;
   private loggingStartMoment = 0;
 
   private authAttemptProgressIndicator = false;
