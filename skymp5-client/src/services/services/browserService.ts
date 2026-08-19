@@ -27,7 +27,10 @@ export class BrowserService extends ClientListener {
     if (e.isDown([DxScanCode.F1])) {
       FormView.isDisplayingNicknames = !FormView.isDisplayingNicknames;
     }
-    if (e.isDown([DxScanCode.F2])) {
+    // Moved off F2, which Hearthheld uses for its own menu. Two handlers on
+    // one key fight each other: the menu makes the browser visible to show
+    // itself while this toggles it straight back off.
+    if (e.isDown([DxScanCode.F3])) {
       this.sp.browser.setVisible(!this.sp.browser.isVisible());
     }
     if (this.badMenusOpen.size === 0 && e.isDown([DxScanCode.F6])) {
