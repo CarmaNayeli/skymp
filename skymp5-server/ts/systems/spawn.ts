@@ -33,7 +33,17 @@ export class Spawn implements System {
         );
         this.log("Creating character", actorId.toString(16));
         ctx.svr.setUserActor(userId, actorId);
-        ctx.svr.setRaceMenuOpen(actorId, true);
+
+        // Opt out so a gamemode can present its own character screen first
+        // and open the race menu only when the player asks for it. This has
+        // to be prevented rather than undone: setRaceMenuOpen(false) is a
+        // no-op on the client (see remoteServer.ts, which only handles
+        // open: true and leaves a TODO for closing), so once the menu is up
+        // nothing server-side can dismiss it. Defaults to the original
+        // behaviour when the setting is absent.
+        if (settingsObject.allSettings?.["openRaceMenuOnCreate"] !== false) {
+          ctx.svr.setRaceMenuOpen(actorId, true);
+        }
       }
 
       const mp = ctx.svr as unknown as Mp;
