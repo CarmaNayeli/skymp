@@ -16,6 +16,7 @@ import { SpApiInteractor } from './services/spApiInteractor';
 import { TimeService } from "./services/services/timeService";
 import { SpVersionCheckService } from "./services/services/spVersionCheckService";
 import { ConsoleCommandsService } from "./services/services/consoleCommandsService";
+import { VoiceChatService } from "./services/services/voiceChatService";
 import { LastInvService } from "./services/services/lastInvService";
 import { ActivationService } from "./services/services/activationService";
 import { CraftService } from "./services/services/craftService";
@@ -77,6 +78,7 @@ const main = () => {
       new TimeService(sp, controller),
       new SpVersionCheckService(sp, controller),
       new ConsoleCommandsService(sp, controller),
+      new VoiceChatService(sp, controller),
       new LastInvService(sp, controller),
       new ActivationService(sp, controller),
       new CraftService(sp, controller),

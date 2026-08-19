@@ -137,7 +137,10 @@ void ExecutePlaceAtMe(MpActor& caller,
   auto aBaseForm =
     VarValue(std::make_shared<EspmGameObject>(br.LookupById(baseFormId)));
   auto aCount = VarValue(1);
-  auto aForcePersist = VarValue(false);
+  // Forced true: a GM placing a prop/structure means it, so it should
+  // survive a cell reset or server restart rather than being garbage
+  // collected like a normal temporary reference.
+  auto aForcePersist = VarValue(true);
   auto aInitiallyDisabled = VarValue(false);
   (void)papyrusObjectReference.PlaceAtMe(
     target.ToVarValue(),
