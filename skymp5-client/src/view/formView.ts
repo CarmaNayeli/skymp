@@ -1,4 +1,4 @@
-import { Actor, ActorBase, createText, destroyText, Form, FormType, Game, Keyword, NetImmerse, ObjectReference, once, printConsole, setTextPos, setTextSize, setTextString, storage, TESModPlatform, Utility, worldPointToScreenPoint } from "skyrimPlatform";
+import { Actor, ActorBase, createText, destroyText, Form, FormType, Game, Keyword, NetImmerse, ObjectReference, once, printConsole, setTextColor, setTextPos, setTextSize, setTextString, storage, TESModPlatform, Utility, worldPointToScreenPoint } from "skyrimPlatform";
 import { setDefaultAnimsDisabled, applyAnimation } from "../sync/animation";
 import { Appearance, applyAppearance } from "../sync/appearance";
 import { isBadMenuShown, applyEquipment } from "../sync/equipment";
@@ -336,6 +336,9 @@ export class FormView {
   private lastOpenApply = 0;
   private isSetNodeTextureSetApplied = false;
   private isSetNodeScaleApplied = false;
+  // Not a one-shot flag like the others: a builder changing scale expects to
+  // see it change, and the new value arrives as a plain property update.
+  private appliedScale: number | undefined = undefined;
 
   private applyAll(refr: ObjectReference, model: FormModel) {
     let forcedWeapDrawn: boolean | null = null;
@@ -356,6 +359,10 @@ export class FormView {
     if (!this.isSetNodeScaleApplied) {
       this.isSetNodeScaleApplied = true;
       ModelApplyUtils.applyModelNodeScale(refr, model.setNodeScale);
+    }
+    if (model.scale !== this.appliedScale) {
+      this.appliedScale = model.scale;
+      ModelApplyUtils.applyModelScale(refr, model.scale);
     }
     if (!this.isSetNodeTextureSetApplied) {
       this.isSetNodeTextureSetApplied = true;
@@ -565,6 +572,7 @@ export class FormView {
         if (!this.textNameId && headScreenPos[2] > 0) {
           this.textNameId = createText(textXPos, textYPos, refr.getDisplayName(), [1, 1, 1, 0.8]);
           setTextSize(this.textNameId, 0.5);
+          this.applyNicknameVoiceColor();
           SpApiInteractor.getControllerInstance().emitter.emit("nicknameCreate", {
             remoteRefrId: this.getRemoteRefrId(),
             textId: this.textNameId
@@ -576,6 +584,7 @@ export class FormView {
           }
           if (this.textNameId) {
             setTextPos(this.textNameId, textXPos, textYPos);
+            this.applyNicknameVoiceColor();
           }
         }
       } else {
@@ -585,6 +594,29 @@ export class FormView {
       this.removeNickname();
     }
   }
+
+  /**
+   * Tints the nametag while that player is speaking on proximity voice.
+   * Colour rather than extra characters, so the tag does not change width and
+   * jump around over their head.
+   *
+   * The last applied state is remembered because this runs on every frame a
+   * nametag is visible, and setTextColor is a native call per nametag.
+   */
+  private applyNicknameVoiceColor(): void {
+    if (!this.textNameId) {
+      return;
+    }
+    const remoteRefrId = this.getRemoteRefrId();
+    const talking = remoteRefrId !== undefined && FormView.talkingRefrIds.has(remoteRefrId);
+    if (talking === this.nicknameShowsTalking) {
+      return;
+    }
+    this.nicknameShowsTalking = talking;
+    setTextColor(this.textNameId, talking ? [0.5, 0.95, 0.55, 1] : [1, 1, 1, 0.8]);
+  }
+
+  private nicknameShowsTalking = false;
 
   private isSweetHidePerson(refr: ObjectReference): boolean {
     const actor = Actor.from(refr)
@@ -596,6 +628,9 @@ export class FormView {
   }
 
   private removeNickname() {
+    // A recreated nametag starts at the default colour, so the remembered
+    // state has to go with the old one or the tint would not be reapplied.
+    this.nicknameShowsTalking = false;
     if (this.textNameId) {
       SpApiInteractor.getControllerInstance().emitter.emit("nicknameDestroy", {
         remoteRefrId: this.getRemoteRefrId(),
@@ -693,4 +728,12 @@ export class FormView {
 
 
   public static isDisplayingNicknames: boolean = true;
+
+  /**
+   * Actor FormIDs of players currently transmitting on proximity voice, kept
+   * up to date by VoiceChatService from what the browser reports. Held here
+   * rather than passed through the form model because it changes many times a
+   * second and has nothing to do with world state.
+   */
+  public static talkingRefrIds: Set<number> = new Set<number>();
 }
