@@ -41,12 +41,32 @@ VarValue PapyrusObjectReference::IsDeleted(
 VarValue PapyrusObjectReference::GetScale(
   VarValue self, const std::vector<VarValue>& arguments)
 {
+  auto selfRefr = GetFormPtr<MpObjectReference>(self);
+  if (selfRefr) {
+    if (auto scale = selfRefr->GetScale()) {
+      return VarValue(*scale);
+    }
+  }
+  // Never scaled, so it is whatever the base record says, and 1 is the only
+  // answer we can give without reading the mesh.
   return VarValue(1.f);
 }
 
 VarValue PapyrusObjectReference::SetScale(
   VarValue self, const std::vector<VarValue>& arguments)
 {
+  if (arguments.size() < 1) {
+    throw std::runtime_error(
+      "PapyrusObjectReference::SetScale - expected 1 argument");
+  }
+
+  auto selfRefr = GetFormPtr<MpObjectReference>(self);
+  if (!selfRefr) {
+    return VarValue::None();
+  }
+
+  selfRefr->SetScale(static_cast<float>(static_cast<double>(arguments[0])));
+
   return VarValue::None();
 }
 

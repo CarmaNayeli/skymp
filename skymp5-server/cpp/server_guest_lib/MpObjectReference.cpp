@@ -396,6 +396,10 @@ void MpObjectReference::VisitProperties(CreateActorMessage& message,
     message.props.lastAnimation = *ChangeForm().lastAnimation;
   }
 
+  if (ChangeForm().scale.has_value()) {
+    message.props.scale = *ChangeForm().scale;
+  }
+
   if (ChangeForm().setNodeScale.has_value()) {
     std::vector<SetNodeScaleEntry> setNodeScale;
     for (auto& [nodeName, scale] : *ChangeForm().setNodeScale) {
@@ -1088,6 +1092,28 @@ void MpObjectReference::SetNodeScale(const std::string& node, float scale,
     }
     changeForm.setNodeScale->insert_or_assign(node, scale);
   });
+}
+
+void MpObjectReference::SetScale(float scale)
+{
+  if (ChangeForm().scale.has_value() && *ChangeForm().scale == scale) {
+    return;
+  }
+
+  EditChangeForm(
+    [&](MpChangeFormREFR& changeForm) { changeForm.scale = scale; });
+
+  // Unlike most properties there is nothing on the client that derives scale
+  // from anything else, so listeners that already have the object spawned only
+  // learn about the change from this message. Anyone who spawns it later picks
+  // it up from VisitProperties instead.
+  SendMessageToActorListeners(
+    CreatePropertyMessage_(this, "scale", std::to_string(scale)), true);
+}
+
+std::optional<float> MpObjectReference::GetScale() const
+{
+  return ChangeForm().scale;
 }
 
 void MpObjectReference::SetDisplayName(

@@ -90,7 +90,8 @@ struct CreateActorMessageAdditionalProps
       .Serialize("magickaPercentage", magickaPercentage)
       .Serialize("templateChain", templateChain)
       .Serialize("inventory", inventory)
-      .Serialize("isDead", isDead);
+      .Serialize("isDead", isDead)
+      .Serialize("scale", scale);
   }
 
   std::optional<bool> isOpen;
@@ -120,6 +121,11 @@ struct CreateActorMessageAdditionalProps
 
   // TODO: take a look why doubles CreateActorMessageMainProps
   std::optional<bool> isDead;
+
+  // Whole-object scale, as set by ObjectReference.SetScale. Sent on spawn so a
+  // scaled object is the right size again after a relog. Live changes travel
+  // separately, as a "scale" property update.
+  std::optional<float> scale;
 };
 
 struct CreateActorMessageMainProps

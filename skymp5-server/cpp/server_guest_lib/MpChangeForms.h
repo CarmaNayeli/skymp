@@ -122,6 +122,11 @@ public:
   // Used for SetDisplayName (object reference)
   std::optional<std::string> displayName;
 
+  // Used for SetScale (object reference). Whole-object scale rather than the
+  // per-node scale above; nullopt means the object has never been scaled and
+  // should be left at whatever its base record says.
+  std::optional<float> scale;
+
   // Used for Faction (FACT) synchronization
   std::optional<std::vector<Faction>> factions;
 
@@ -142,7 +147,7 @@ public:
       equipment.ToJson(), actorValues.ToTuple(), healthRespawnPercentage,
       magickaRespawnPercentage, staminaRespawnPercentage, spawnPoint,
       dynamicFields, spawnDelay, learnedSpells, templateChain, lastAnimation,
-      setNodeTextureSet, setNodeScale, displayName);
+      setNodeTextureSet, setNodeScale, displayName, scale);
   }
 
   static nlohmann::json ToJson(const MpChangeFormREFR& changeForm);

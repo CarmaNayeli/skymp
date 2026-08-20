@@ -98,6 +98,10 @@ nlohmann::json MpChangeForm::ToJson(const MpChangeForm& changeForm)
     res["displayName"] = *changeForm.displayName;
   }
 
+  if (changeForm.scale.has_value()) {
+    res["scale"] = *changeForm.scale;
+  }
+
   if (changeForm.factions.has_value() &&
       !changeForm.factions.value().empty()) {
     auto factionsJson = nlohmann::json::array();
@@ -153,6 +157,7 @@ MpChangeForm MpChangeForm::JsonToChangeForm(simdjson::dom::element& element)
   static const JsonPointer setNodeTextureSet("setNodeTextureSet");
   static const JsonPointer setNodeScale("setNodeScale");
   static const JsonPointer displayName("displayName");
+  static const JsonPointer scale("scale");
   static const JsonPointer factions("factions");
   static const JsonPointer healthRespawnPercentage("healthRespawnPercentage");
   static const JsonPointer magickaRespawnPercentage(
@@ -349,6 +354,13 @@ MpChangeForm MpChangeForm::JsonToChangeForm(simdjson::dom::element& element)
     const char* tmp;
     ReadEx(element, displayName, &tmp);
     res.displayName = tmp;
+  }
+
+  if (element.at_pointer(scale.GetData()).error() ==
+      simdjson::error_code::SUCCESS) {
+    float tmp = 1.f;
+    ReadEx(element, scale, &tmp);
+    res.scale = tmp;
   }
 
   if (element.at_pointer(factions.GetData()).error() ==

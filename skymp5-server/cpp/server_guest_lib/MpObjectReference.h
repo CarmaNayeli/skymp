@@ -177,6 +177,8 @@ public:
                          bool firstPerson);
   void SetNodeScale(const std::string& node, float scale, bool firstPerson);
   void SetDisplayName(const std::optional<std::string>& newName);
+  void SetScale(float scale);
+  std::optional<float> GetScale() const;
 
   const std::set<MpObjectReference*>& GetListeners() const;
   const std::set<MpObjectReference*>& GetEmitters() const;
