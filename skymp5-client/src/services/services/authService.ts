@@ -216,7 +216,7 @@ export class AuthService extends ClientListener {
         browserState.comment = '';
         this.setListenBrowserMessage(true, 'loginFailedNotLoggedViaDiscord received');
         this.loggingStartMoment = 0;
-        this.sp.browser.executeJavaScript(new FunctionInfo(this.loginFailedWidgetSetter).getText({ events, browserState, authData: authData, strings }));
+        this.showLoginFailure();
         break;
       case 'loginFailedNotInTheDiscordServer':
         this.authAttemptProgressIndicator = false;
@@ -226,7 +226,7 @@ export class AuthService extends ClientListener {
         browserState.comment = '';
         this.setListenBrowserMessage(true, 'loginFailedNotInTheDiscordServer received');
         this.loggingStartMoment = 0;
-        this.sp.browser.executeJavaScript(new FunctionInfo(this.loginFailedWidgetSetter).getText({ events, browserState, authData: authData, strings }));
+        this.showLoginFailure();
         break;
       case 'loginFailedBanned':
         this.authAttemptProgressIndicator = false;
@@ -236,7 +236,7 @@ export class AuthService extends ClientListener {
         browserState.comment = '';
         this.setListenBrowserMessage(true, 'loginFailedBanned received');
         this.loggingStartMoment = 0;
-        this.sp.browser.executeJavaScript(new FunctionInfo(this.loginFailedWidgetSetter).getText({ events, browserState, authData: authData, strings }));
+        this.showLoginFailure();
         break;
       case 'loginFailedIpMismatch':
         this.authAttemptProgressIndicator = false;
@@ -246,7 +246,7 @@ export class AuthService extends ClientListener {
         browserState.comment = '';
         this.setListenBrowserMessage(true, 'loginFailedIpMismatch received');
         this.loggingStartMoment = 0;
-        this.sp.browser.executeJavaScript(new FunctionInfo(this.loginFailedWidgetSetter).getText({ events, browserState, authData: authData, strings }));
+        this.showLoginFailure();
         break;
     }
   }
@@ -323,7 +323,14 @@ export class AuthService extends ClientListener {
         this.sp.win32.loadUrl("https://skymp.net/UpdInstall");
         break;
       case events.backToLogin:
-        this.sp.browser.executeJavaScript(new FunctionInfo(this.browsersideWidgetSetter).getText({ events, browserState, authData: authData, strings }));
+        // Upstream sends you back to its own login form. Hearthheld gets its
+        // session from the launcher, so that form has nothing to ask and is a
+        // dead end. Reconnecting is what the player actually wants: the
+        // connection was closed when this screen appeared, and once it is back
+        // the server offers the character screen.
+        this.sp.browser.executeJavaScript("window.skyrimPlatform && window.skyrimPlatform.widgets && window.skyrimPlatform.widgets.set([])");
+        logTrace(this, `Back pressed on the failure screen, reconnecting`);
+        this.controller.lookupListener(NetworkingService).reconnect();
         break;
       case events.joinDiscord:
         this.sp.win32.loadUrl("https://discord.gg/9KhSZ6zjGT");
@@ -707,7 +714,7 @@ export class AuthService extends ClientListener {
         this.controller.lookupListener(NetworkingService).close();
         browserState.comment = "";
         browserState.loginFailedReason = strings.technicalIssues;
-        this.sp.browser.executeJavaScript(new FunctionInfo(this.loginFailedWidgetSetter).getText({ events, browserState, authData: authData, strings }));
+        this.showLoginFailure();
 
         authData = null;
         this.writeAuthDataToDisk(null);
@@ -736,6 +743,23 @@ export class AuthService extends ClientListener {
 
   private isListenBrowserMessage() {
     return this._isListenBrowserMessage;
+  }
+
+  /**
+   * Draws the failure screen and makes sure it can actually be used.
+   *
+   * Drawing it is not enough on its own: if the browser is hidden or does not
+   * hold focus there is no cursor, so the buttons on it cannot be clicked and
+   * the screen is a dead end.
+   */
+  private showLoginFailure() {
+    this.sp.browser.executeJavaScript(new FunctionInfo(this.loginFailedWidgetSetter).getText({ events, browserState, authData: authData, strings }));
+    try {
+      this.sp.browser.setVisible(true);
+      this.sp.browser.setFocused(true);
+    } catch (e) {
+      logError(this, `Could not focus the failure screen`, e);
+    }
   }
 
   private setListenBrowserMessage(value: boolean, reason: string) {
