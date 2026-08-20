@@ -298,6 +298,8 @@ export class RemoteServer extends ClientListener {
 
             ModelApplyUtils.applyModelNodeScale(refr, msg.props.setNodeScale);
 
+            ModelApplyUtils.applyModelScale(refr, msg.props.scale);
+
             ModelApplyUtils.applyModelNodeTextureSet(refr, msg.props.setNodeTextureSet);
 
             ModelApplyUtils.applyModelIsDisabled(refr, !!msg.props['disabled']);
@@ -745,6 +747,8 @@ export class RemoteServer extends ClientListener {
           ModelApplyUtils.applyModelIsHarvested(refr, !!msgData);
         } else if (msg.propName === 'disabled') {
           ModelApplyUtils.applyModelIsDisabled(refr, !!msgData);
+        } else if (msg.propName === 'scale') {
+          ModelApplyUtils.applyModelScale(refr, msgData as number);
         }
       });
       return;

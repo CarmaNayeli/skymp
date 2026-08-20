@@ -117,6 +117,13 @@ export class ModelApplyUtils {
     }
   }
 
+  static applyModelScale(refr: ObjectReference, scale?: number) {
+    if (typeof scale === "number") {
+      refr.setScale(scale);
+      logTrace("ModelApplyUtils", refr.getFormID().toString(16), `Applied scale`, scale);
+    }
+  }
+
   static applyModelNodeScale(refr: ObjectReference, setNodeScale?: SetNodeScaleEntry[]) {
     if (setNodeScale) {
       setNodeScale.forEach(element => {

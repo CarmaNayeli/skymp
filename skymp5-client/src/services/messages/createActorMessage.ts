@@ -67,4 +67,9 @@ export interface CreateActorMessageAdditionalProps {
     inventory?: Inventory;
 
     isDead?: boolean; // TODO: take a look why doubles CreateActorMessageMainProps
+
+    // Whole-object scale, from ObjectReference.SetScale on the server. Absent
+    // means never scaled, which is not the same as 1: an object left alone
+    // should keep whatever its base record gives it.
+    scale?: number;
 }
