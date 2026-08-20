@@ -7,6 +7,25 @@ import { SettingsService } from "./settingsService";
 
 const STATE_KEY = 'loadOrderCheckState';
 
+/**
+ * Mods a player has to install themselves, with somewhere to get them.
+ *
+ * Kept here rather than fetched, because it ships inside the ordinary client
+ * update and changes about as often as the client does. Keys are lowercased
+ * filenames, since Skyrim 1.6 is inconsistent about case.
+ */
+const REQUIRED_MOD_HELP: Record<string, { name: string; url: string }> = {
+  "lvxmagick - skyrim - settlement builder.esm": {
+    name: "Skyrim Settlement Builder",
+    url: "https://www.nexusmods.com/skyrimspecialedition/mods/58021",
+  },
+};
+
+function describeMod(filename: string): string {
+  const help = REQUIRED_MOD_HELP[filename.toLowerCase()];
+  return help ? help.name + "\n  " + help.url : filename;
+}
+
 interface State {
   statusTextId?: number;
 };
@@ -30,6 +49,22 @@ export class LoadOrderVerificationService extends ClientListener {
     return settingsService.getServerMods()
       .then((serverMods) => {
         this.printModOrder('Server load order:', serverMods);
+        // Named rather than counted. "Server has 6, we have 5" tells a player
+        // nothing they can act on, and this is the case every new joiner hits
+        // before they have installed anything.
+        const clientNames = new Set(clientMods.map((m) => m.filename.toLowerCase()));
+        const absent = serverMods
+          .map((m) => m.filename)
+          .filter((f) => !clientNames.has(f.toLowerCase()));
+        if (absent.length > 0) {
+          this.updateText(
+            "HEARTHHELD NEEDS A MOD YOU DO NOT HAVE\n\n" +
+            absent.map(describeMod).join("\n\n") +
+            "\n\nInstall it, then start the launcher again.",
+            [255, 190, 90, 1],
+          );
+          throw new Error("Missing required mods: " + JSON.stringify(absent));
+        }
         if (clientMods.length < serverMods.length) {
           throw new Error(`Missing some server mods. Server has ${serverMods.length}, we have ${clientMods.length}`);
         }
@@ -54,6 +89,18 @@ export class LoadOrderVerificationService extends ClientListener {
           }
         }
         if (fail.length !== 0) {
+          // Having the file but not matching byte for byte nearly always means
+          // a different version, which needs a different fix from installing
+          // it, so it gets its own wording.
+          const wrong = fail.map((i) => serverMods[i].filename);
+          this.updateText(
+            "WRONG VERSION OF A REQUIRED MOD\n\n" +
+            wrong.map(describeMod).join("\n\n") +
+            "\n\nYou have this mod, but not the same build as the server.\n" +
+            "Reinstall it from the link above.",
+            [255, 190, 90, 1],
+          );
+
           throw new Error('Load order check failed! Indices: ' + JSON.stringify(fail));
         }
       })
@@ -68,10 +115,16 @@ export class LoadOrderVerificationService extends ClientListener {
           );
           return;
         }
-        this.updateText(
-          'LOAD ORDER ERROR!\nCheck console for details.',
-          [255, 0, 0, 1],
-        );
+        // Only unexplained failures reach this. Anything we could name has
+        // already put a better message on screen, and replacing it with "check
+        // the console" would throw away the one useful thing the player was
+        // told.
+        if (!this.explained) {
+          this.updateText(
+            'LOAD ORDER ERROR!\nCheck console for details.',
+            [255, 0, 0, 1],
+          );
+        }
       });
   };
 
@@ -98,7 +151,16 @@ export class LoadOrderVerificationService extends ClientListener {
     }
   };
 
+  /**
+   * Set once something specific is on screen, so the generic "check the
+   * console" message does not replace it.
+   */
+  private explained = false;
+
   private updateText(text: string, color: [number, number, number, number], clearDelay?: number) {
+    if (!clearDelay) {
+      this.explained = true;
+    }
     const { width, height } = getScreenResolution();
     this.resetText();
     const statusTextId = createText(width / 2, height / 2, text, color);
