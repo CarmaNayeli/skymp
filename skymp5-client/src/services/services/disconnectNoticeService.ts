@@ -20,7 +20,30 @@ import { logTrace, logError } from "../../logging";
 export class DisconnectNoticeService extends ClientListener {
   constructor(private sp: Sp, private controller: CombinedController) {
     super();
-    this.controller.emitter.on("connectionAccepted", () => this.onConnected());
+    // NOT connectionAccepted. That fires when the socket is back, which is
+    // several steps before the player is: they still have to log in, receive
+    // the character list, choose, and spawn. Hiding there put them in front of
+    // a world that looked live and was not, which is the exact thing this
+    // notice exists to prevent.
+    //
+    // Two things genuinely end it. Their own actor arriving means they are in
+    // the world. The character screen appearing means they are not, but it says
+    // so far better than a dimmed overlay does, and it has to be readable.
+    this.controller.emitter.on("createActorMessage", (e) => {
+      if (e.message.isMe) {
+        this.onConnected();
+      }
+    });
+    this.controller.emitter.on("customPacketMessage", (e) => {
+      try {
+        const content = JSON.parse(e.message.contentJsonDump) as Record<string, unknown>;
+        if (content["customPacketType"] === "hhCharacterSelect") {
+          this.onConnected();
+        }
+      } catch {
+        // Not ours to parse. Leaving the notice up is the safe outcome.
+      }
+    });
     this.controller.emitter.on("connectionDisconnect", () => this.onLost("Lost connection to Hearthheld."));
     this.controller.emitter.on("connectionFailed", () => this.onLost("Cannot reach Hearthheld."));
     this.controller.emitter.on("connectionDenied", () => this.onLost("Hearthheld refused the connection."));
