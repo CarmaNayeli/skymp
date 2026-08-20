@@ -52,6 +52,28 @@ CefRefPtr<CefContextMenuHandler> OverlayClient::GetContextMenuHandler()
   return m_pContextMenuHandler;
 }
 
+CefRefPtr<CefPermissionHandler> OverlayClient::GetPermissionHandler()
+{
+  return this;
+}
+
+bool OverlayClient::OnRequestMediaAccessPermission(
+  CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
+  const CefString& requesting_origin, uint32 requested_permissions,
+  CefRefPtr<CefMediaAccessCallback> callback)
+{
+  // Audio only. Nothing here has any use for a camera or for screen capture,
+  // so those are refused even if the page asks for them.
+  const uint32 granted =
+    requested_permissions & CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE;
+
+  callback->Continue(granted);
+
+  // Returning true means the request was handled. Returning false, which is the
+  // default, leaves it denied.
+  return true;
+}
+
 void OverlayClient::SetBrowser(const CefRefPtr<CefBrowser>& aBrowser) noexcept
 {
   m_pBrowser = aBrowser;

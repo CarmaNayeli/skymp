@@ -306,5 +306,18 @@ void MyChromiumApp::RunTasks()
 void MyChromiumApp::OnBeforeCommandLineProcessing(
   const CefString& aProcessType, CefRefPtr<CefCommandLine> aCommandLine)
 {
+  // Proximity voice chat runs as WebRTC inside this browser, which means the
+  // page calls getUserMedia. CEF denies microphone access by default.
+  //
+  // "enable-media-stream" turns the capture APIs on at all. "use-fake-ui-for-
+  // media-stream" auto-accepts the permission request using the default input
+  // device: despite the name it does NOT fake the audio, it only stands in for
+  // the permission prompt. That matters here because this browser is an
+  // offscreen-rendered overlay drawn into the game's D3D swapchain, so there
+  // is nowhere for Chromium to actually show a prompt and nothing for the
+  // player to click. Without it the request is left pending forever and voice
+  // silently never starts.
+  aCommandLine->AppendSwitch("enable-media-stream");
+  aCommandLine->AppendSwitch("use-fake-ui-for-media-stream");
 }
 }
