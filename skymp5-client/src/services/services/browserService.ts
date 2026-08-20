@@ -33,6 +33,15 @@ export class BrowserService extends ClientListener {
     if (e.isDown([DxScanCode.F3])) {
       this.sp.browser.setVisible(!this.sp.browser.isVisible());
     }
+    // Ask the game which of these are really open before trusting the tally.
+    //
+    // badMenusOpen is built from menuOpen and menuClose events, so a single
+    // missed close leaves it non-empty forever and silently kills Enter and
+    // F6 until the player relogs. That is not hypothetical: opening the
+    // console once was enough, and SkyrimSouls deliberately changes when menu
+    // events fire, which makes a miss more likely rather than less.
+    this.pruneClosedMenus();
+
     if (this.badMenusOpen.size === 0 && e.isDown([DxScanCode.F6])) {
       const newState = !this.sp.browser.isFocused();
       this.sp.browser.setFocused(newState);
@@ -84,6 +93,36 @@ export class BrowserService extends ClientListener {
 
     if (e.name === Menu.HUD) {
       this.sp.browser.setVisible(false);
+    }
+  }
+
+  /**
+   * Drops any menu the game says is no longer open.
+   *
+   * Cheap: the set is empty almost always, and holds one or two entries
+   * otherwise, so this costs nothing on the overwhelming majority of calls.
+   */
+  private pruneClosedMenus() {
+    if (this.badMenusOpen.size === 0) {
+      return;
+    }
+    const names: string[] = [];
+    this.badMenusOpen.forEach((name) => names.push(name));
+    for (const name of names) {
+      let stillOpen = false;
+      try {
+        stillOpen = this.sp.Ui.isMenuOpen(name);
+      } catch (e) {
+        // If the game will not answer, believe the event rather than guess.
+        stillOpen = true;
+      }
+      if (!stillOpen) {
+        this.badMenusOpen.delete(name);
+      }
+    }
+    if (this.badMenusOpen.size === 0) {
+      // Whatever hid the overlay is gone, so put it back.
+      this.sp.browser.setVisible(true);
     }
   }
 
