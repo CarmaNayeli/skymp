@@ -240,7 +240,13 @@ export const VOICE_RUNTIME_JS = `
       // Whoever has the lower id makes the offer. Both sides discover each
       // other on the same tick, so without a fixed rule both would offer at
       // once and the negotiation would collide.
-      isCaller: state.selfActorId < actorId,
+      //
+      // The rule only works once our own id is known. It starts as 0, which is
+      // lower than every actor id, so a client that has not spawned yet thinks
+      // it is the caller no matter who it is talking to. Someone still on a
+      // loading screen would answer an incoming offer with an offer of its own
+      // and both sides died on "Called in wrong state: have-remote-offer".
+      isCaller: !!state.selfActorId && state.selfActorId < actorId,
       tracksAttached: false,
       pendingIce: [],
       haveRemote: false,
@@ -325,6 +331,10 @@ export const VOICE_RUNTIME_JS = `
         ensureMic();
         peer = createPeer(fromActorId);
         if (!peer) { return; }
+        // Whatever the tiebreak said, the side that has just received an offer
+        // is answering it. createPeer offers immediately when it believes it is
+        // the caller, and doing that here is the collision itself.
+        peer.isCaller = false;
       }
       peer.pc.setRemoteDescription(payload.sdp).then(function () {
         peer.haveRemote = true;
