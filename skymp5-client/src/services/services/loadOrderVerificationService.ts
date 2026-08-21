@@ -37,7 +37,21 @@ export class LoadOrderVerificationService extends ClientListener {
   }
 
   private onceUpdate() {
-    this.verifyLoadOrder();
+    // Wrapped, because this used to be able to throw and take the whole check
+    // with it. Neither a working machine nor a broken one printed the load
+    // order it is supposed to print, which is how a client running two more
+    // plugins than the server reached the world and hung there instead of
+    // being told.
+    try {
+      const result = this.verifyLoadOrder();
+      if (result && typeof result.catch === "function") {
+        result.catch((e: unknown) => {
+          logTrace(this, `load order check failed:`, e);
+        });
+      }
+    } catch (e) {
+      logTrace(this, `load order check threw before it could run:`, e);
+    }
   }
 
   private verifyLoadOrder() {

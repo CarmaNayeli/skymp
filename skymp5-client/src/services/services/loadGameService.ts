@@ -17,6 +17,10 @@ export class LoadGameService extends ClientListener {
         logTrace(this, `loadGame: cell ${worldOrCell.toString(16)}, pos ${JSON.stringify(pos)},`,
             `${loadOrder ? loadOrder.length : 0} plugin(s), appearance ${changeFormNpc ? "yes" : "no"},`,
             `hour ${time ? time.hours : "none"}`);
+        // Named, not just counted. A count that differs from the server's is
+        // the whole problem and "8 plugin(s)" does not say which two, so the
+        // next question was always going to be this one.
+        logTrace(this, `loadGame plugins: ${loadOrder ? loadOrder.join(", ") : "none"}`);
         try {
             // @ts-ignore
             this.sp.loadGame(pos, rot, worldOrCell, changeFormNpc, loadOrder, time);
