@@ -4,7 +4,7 @@ import { FormView } from "../../view/formView";
 import { QueryKeyCodeBindings } from "../events/queryKeyCodeBindings";
 
 import { ClientListener, CombinedController, Sp } from "./clientListener";
-import { logTrace } from "../../logging";
+import { logTrace, logError } from "../../logging";
 import { BrowserMessageEvent, DxScanCode, Menu, MenuCloseEvent, MenuOpenEvent } from "skyrimPlatform";
 
 const unfocusEventString = `window.dispatchEvent(new CustomEvent('skymp5-client:browserUnfocused', {}))`;
@@ -18,6 +18,17 @@ export class BrowserService extends ClientListener {
 
     this.controller.emitter.on("queryKeyCodeBindings", (e) => this.onQueryKeyCodeBindings(e));
     this.controller.once("update", () => this.onceUpdate());
+    // Pruning also runs here, not only on a key press.
+    //
+    // A key handler is not the game thread, and Ui.isMenuOpen throws there
+    // with "can't be called in this context". pruneClosedMenus believes the
+    // event when it cannot ask, which is the safe answer for one call and a
+    // trap over a session: a menu whose close was missed can then never be
+    // pruned, typing stays blocked, and Enter stops working after a while
+    // with no way back short of a relaunch.
+    //
+    // update is the game thread, so the question can actually be asked there.
+    this.controller.on("update", () => this.onUpdate());
     this.controller.on("browserMessage", (e) => this.onBrowserMessage(e));
     this.controller.on("menuOpen", (e) => this.onMenuOpen(e));
     this.controller.on("menuClose", (e) => this.onMenuClose(e));
@@ -74,6 +85,26 @@ export class BrowserService extends ClientListener {
   private onceUpdate() {
     this.sp.browser.setVisible(true);
   }
+
+  /**
+   * Clears menus the game says are shut, about once a second.
+   *
+   * Throttled because this runs every frame and the tally is almost always
+   * empty; the check above makes the common case a single comparison.
+   */
+  private onUpdate() {
+    if (this.badMenusOpen.size === 0) {
+      return;
+    }
+    const now = Date.now();
+    if (now - this.lastPruneAt < 1000) {
+      return;
+    }
+    this.lastPruneAt = now;
+    this.pruneClosedMenus();
+  }
+
+  private lastPruneAt = 0;
 
   private onBrowserMessage(e: BrowserMessageEvent) {
     const onFrontLoadedEventKey = "front-loaded";
@@ -135,7 +166,14 @@ export class BrowserService extends ClientListener {
         stillOpen = this.sp.Ui.isMenuOpen(name);
       } catch (e) {
         // If the game will not answer, believe the event rather than guess.
+        // Reported once, because this being silent is what let the condition
+        // above go unnoticed: every prune failing looks exactly like every
+        // menu genuinely still being open.
         stillOpen = true;
+        if (!this.warnedAboutMenuQuery) {
+          this.warnedAboutMenuQuery = true;
+          logError(this, `could not ask the game which menus are open:`, e);
+        }
       }
       if (!stillOpen) {
         this.badMenusOpen.delete(name);
@@ -152,6 +190,7 @@ export class BrowserService extends ClientListener {
   }
 
   private badMenusOpen = new Set<string>();
+  private warnedAboutMenuQuery = false;
 
   /**
    * Menus that genuinely conflict with typing, as opposed to merely being open.
