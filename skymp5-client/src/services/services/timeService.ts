@@ -7,11 +7,18 @@ export class TimeService extends ClientListener {
     }
 
     public getTime() {
-        const hoursOffsetSetting = this.sp.settings["skymp5-client"]["hoursOffset"];
-        const hoursOffset = typeof hoursOffsetSetting === "number" ? hoursOffsetSetting : 0;
-        const hoursOffsetMs = hoursOffset * 60 * 60 * 1000;
-
-        const d = new Date(Date.now() + hoursOffsetMs);
+        // The world runs on GMT, and hoursOffset is deliberately ignored.
+        //
+        // Every client works the game hour out for itself, from its own clock
+        // plus its own offset, and tells nobody. Upstream that is a preference,
+        // because a private world can keep whatever hours its owner likes. On a
+        // shared one it means two people standing in the same room are in
+        // different hours: one at noon, one at dusk, each seeing the sun where
+        // their own settings file says it belongs. Ignoring the offset here
+        // rather than writing zero into the file is what makes that true for
+        // everybody, since the file is shared with every other SkyMP server on
+        // the machine and any of them can put an offset back.
+        const d = new Date();
 
         let newGameHourValue = 0;
         newGameHourValue += d.getUTCHours();
