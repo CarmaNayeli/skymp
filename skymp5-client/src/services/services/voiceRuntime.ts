@@ -170,12 +170,37 @@ export const VOICE_RUNTIME_JS = `
     } catch (e) {}
   }
 
+  // Whether the player is actually typing, as opposed to something merely
+  // holding focus.
+  //
+  // The chat input is a contenteditable span, and it keeps DOM focus for the
+  // whole session whether or not chat is open: it takes focus when the widget
+  // first renders and nothing takes it away again. Treating that as typing meant
+  // the microphone key was refused forever, with "key ignored, focus is in
+  // SPAN.chat-input--text" every single press.
+  //
+  // hh-chat-active is the signal that tracks the real state. It goes on when the
+  // browser takes focus and off when it gives it back, which is exactly when
+  // someone is and is not typing. A real input or textarea still counts on its
+  // own, because those only hold focus while genuinely in use, and the character
+  // name field is one of them.
+  function chatIsActive() {
+    try {
+      return !!(document.body && document.body.classList &&
+        document.body.classList.contains('hh-chat-active'));
+    } catch (e) {
+      // Cannot tell, so do not let it stop someone speaking.
+      return false;
+    }
+  }
+
   function isTyping() {
     try {
       var el = document.activeElement;
       if (!el) { return false; }
       var tag = (el.tagName || '').toUpperCase();
-      return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable === true;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') { return true; }
+      return el.isContentEditable === true && chatIsActive();
     } catch (e) {
       return false;
     }
