@@ -4,6 +4,7 @@ import { FormView } from "../../view/formView";
 import { QueryKeyCodeBindings } from "../events/queryKeyCodeBindings";
 
 import { ClientListener, CombinedController, Sp } from "./clientListener";
+import { logTrace } from "../../logging";
 import { BrowserMessageEvent, DxScanCode, Menu, MenuCloseEvent, MenuOpenEvent } from "skyrimPlatform";
 
 const unfocusEventString = `window.dispatchEvent(new CustomEvent('skymp5-client:browserUnfocused', {}))`;
@@ -42,7 +43,7 @@ export class BrowserService extends ClientListener {
     // events fire, which makes a miss more likely rather than less.
     this.pruneClosedMenus();
 
-    if (this.badMenusOpen.size === 0 && e.isDown([DxScanCode.F6])) {
+    if (!this.typingBlocked() && e.isDown([DxScanCode.F6])) {
       const newState = !this.sp.browser.isFocused();
       this.sp.browser.setFocused(newState);
       if (newState) {
@@ -51,9 +52,16 @@ export class BrowserService extends ClientListener {
         this.sp.browser.executeJavaScript(unfocusEventString);
       }
     }
-    if (this.badMenusOpen.size === 0 && e.isDown([DxScanCode.Enter])) {
-      this.sp.browser.setFocused(true);
-      this.sp.browser.executeJavaScript(focusEventString);
+    if (e.isDown([DxScanCode.Enter])) {
+      if (this.typingBlocked()) {
+        // Says which one, so a report is actionable rather than "chat stopped".
+        const open: string[] = [];
+        this.badMenusOpen.forEach((name) => open.push(name));
+        logTrace(this, `Enter ignored, these are open: ${open.join(", ")}`);
+      } else {
+        this.sp.browser.setFocused(true);
+        this.sp.browser.executeJavaScript(focusEventString);
+      }
     }
     if (e.isDown([DxScanCode.Escape])) {
       if (this.sp.browser.isFocused()) {
@@ -131,6 +139,38 @@ export class BrowserService extends ClientListener {
   }
 
   private badMenusOpen = new Set<string>();
+
+  /**
+   * Menus that genuinely conflict with typing, as opposed to merely being open.
+   *
+   * SkyrimSouls is installed here and makes most menus non blocking, so a
+   * player can open a container or a crafting bench and walk away with it still
+   * technically open. Ui.isMenuOpen then answers true quite correctly, pruning
+   * keeps the entry, and Enter stays dead until they find and close a menu they
+   * have no reason to think is open. Activating a Settlement Builder door does
+   * exactly this: it opens a crafting menu.
+   *
+   * These four are different. The console owns the keyboard, race menu and
+   * loading are modal, and Main means not being in the world at all. Nothing
+   * else is a reason to refuse someone their chat window.
+   */
+  private readonly typingBlockers: Menu[] = [
+    Menu.Console,
+    Menu.RaceSex,
+    Menu.Loading,
+    Menu.Main,
+  ];
+
+  /** Whether anything open right now actually stops the player typing. */
+  private typingBlocked(): boolean {
+    let blocked = false;
+    this.badMenusOpen.forEach((name) => {
+      if (this.typingBlockers.includes(name as Menu)) {
+        blocked = true;
+      }
+    });
+    return blocked;
+  }
 
   private readonly badMenus: Menu[] = [
     Menu.Barter,
