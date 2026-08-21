@@ -25,6 +25,7 @@ export class LoadGameService extends ClientListener {
             // @ts-ignore
             this.sp.loadGame(pos, rot, worldOrCell, changeFormNpc, loadOrder, time);
             logTrace(this, `loadGame returned`);
+            this.watchLoad();
         } catch (e) {
             // Hotfix non-vanilla headparts bug
             logError(this, `loadGame threw, retrying without appearance:`, e);
@@ -42,7 +43,76 @@ export class LoadGameService extends ClientListener {
         this._isCausedBySkyrimPlatform = true;
     }
 
+    /**
+     * Says what the game is doing while it fails to finish loading.
+     *
+     * "loadGame returned" followed by silence is where people have been
+     * getting stuck, and that one line cannot tell apart the three things it
+     * could mean. Sitting on a loading screen forever is a data problem;
+     * sitting at the main menu means loadGame quietly did nothing; standing in
+     * the world means the load worked and only the event went missing. Each
+     * wants a different fix, and guessing between them has cost days.
+     *
+     * Driven off tick rather than Utility.wait, because game time does not
+     * advance on a loading screen and the wait would never return, which is
+     * exactly the case this has to report on.
+     */
+    private watchLoad() {
+        if (this._loadWatchdogActive) {
+            return;
+        }
+        this._loadWatchdogActive = true;
+        this._sawLoadEvent = false;
+        const started = Date.now();
+        let nextReport = 5000;
+        const step = () => {
+            if (this._sawLoadEvent) {
+                this._loadWatchdogActive = false;
+                return;
+            }
+            const elapsed = Date.now() - started;
+            if (elapsed >= nextReport) {
+                this.reportLoadState(Math.round(elapsed / 1000));
+                nextReport += 5000;
+                // A minute is well past any honest load, and a trace repeating
+                // forever would bury whatever comes after it.
+                if (elapsed >= 60000) {
+                    logTrace(this, `still not loaded after a minute, no longer watching`);
+                    this._loadWatchdogActive = false;
+                    return;
+                }
+            }
+            this.controller.once("tick", step);
+        };
+        this.controller.once("tick", step);
+    }
+
+    private reportLoadState(seconds: number) {
+        let menus = "unavailable";
+        try {
+            const open = ["Loading Menu", "Main Menu", "RaceSex Menu", "MessageBoxMenu", "Console"]
+                .filter((name) => this.sp.Ui.isMenuOpen(name));
+            menus = open.length > 0 ? open.join(", ") : "none";
+        } catch (e) {
+            menus = `threw: ${e}`;
+        }
+        let player = "unavailable";
+        try {
+            const self = this.sp.Game.getPlayer();
+            if (!self) {
+                player = "null";
+            } else {
+                const cell = self.getParentCell();
+                player = `${self.getFormID().toString(16)} in cell ${cell ? cell.getFormID().toString(16) : "none"}`;
+            }
+        } catch (e) {
+            player = `threw: ${e}`;
+        }
+        logTrace(this, `still loading after ${seconds}s: menus open [${menus}], player ${player}`);
+    }
+
     private onLoadGame() {
+        this._sawLoadEvent = true;
         logTrace(this, `game finished loading, caused by us: ${this._isCausedBySkyrimPlatform}`);
         try {
             const gameLoadEvent = {
@@ -61,4 +131,6 @@ export class LoadGameService extends ClientListener {
     }
 
     private _isCausedBySkyrimPlatform = false;
+    private _loadWatchdogActive = false;
+    private _sawLoadEvent = false;
 }
