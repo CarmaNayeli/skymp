@@ -63,6 +63,9 @@ export class LoadGameService extends ClientListener {
         }
         this._loadWatchdogActive = true;
         this._sawLoadEvent = false;
+        this._sawUpdate = false;
+        // One shot, purely to learn whether the game ever starts running.
+        this.controller.once("update", () => { this._sawUpdate = true; });
         const started = Date.now();
         let nextReport = 5000;
         const step = () => {
@@ -88,27 +91,22 @@ export class LoadGameService extends ClientListener {
     }
 
     private reportLoadState(seconds: number) {
-        let menus = "unavailable";
-        try {
-            const open = ["Loading Menu", "Main Menu", "RaceSex Menu", "MessageBoxMenu", "Console"]
-                .filter((name) => this.sp.Ui.isMenuOpen(name));
-            menus = open.length > 0 ? open.join(", ") : "none";
-        } catch (e) {
-            menus = `threw: ${e}`;
-        }
-        let player = "unavailable";
-        try {
-            const self = this.sp.Game.getPlayer();
-            if (!self) {
-                player = "null";
-            } else {
-                const cell = self.getParentCell();
-                player = `${self.getFormID().toString(16)} in cell ${cell ? cell.getFormID().toString(16) : "none"}`;
-            }
-        } catch (e) {
-            player = `threw: ${e}`;
-        }
-        logTrace(this, `still loading after ${seconds}s: menus open [${menus}], player ${player}`);
+        // Deliberately reads nothing from the game. Ui.isMenuOpen and
+        // Game.getPlayer are only callable on the game thread, which
+        // SkyrimPlatform hands us in the update event and not in tick, and
+        // this runs on tick precisely because tick keeps firing while the game
+        // is loading and update does not. Calling them here throws "can't be
+        // called in this context" once per frame and reports nothing.
+        //
+        // That the update event has not fired is itself the answer worth
+        // having: it means the game has not reached the world yet, which is
+        // the difference between a slow load and a load that is never going to
+        // finish.
+        logTrace(
+            this,
+            `still loading after ${seconds}s:`,
+            this._sawUpdate ? `the game is running but the load never completed` : `the game has not started running yet`,
+        );
     }
 
     private onLoadGame() {
@@ -133,4 +131,5 @@ export class LoadGameService extends ClientListener {
     private _isCausedBySkyrimPlatform = false;
     private _loadWatchdogActive = false;
     private _sawLoadEvent = false;
+    private _sawUpdate = false;
 }

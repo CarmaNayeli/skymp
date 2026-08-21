@@ -889,6 +889,7 @@ export class RemoteServer extends ClientListener {
     const started = Date.now();
     let attempts = 0;
     let lastBlockedBy = "";
+    let contextComplaints = 0;
     // Long enough for the arrival teleport to settle. Showing the menu on top
     // of a half drawn cell is what the original delay was avoiding.
     const settleMs = 500;
@@ -908,10 +909,6 @@ export class RemoteServer extends ClientListener {
         if (this.sp.Ui.isMenuOpen("Main Menu")) {
           return "still at the main menu";
         }
-      } catch (e) {
-        return `could not read the menus: ${e}`;
-      }
-      try {
         const self = this.sp.Game.getPlayer();
         if (!self) {
           return "no player yet";
@@ -920,7 +917,15 @@ export class RemoteServer extends ClientListener {
           return "player is not in a cell yet";
         }
       } catch (e) {
-        return `could not read the player: ${e}`;
+        // Only ever seen as "can't be called in this context", which should be
+        // impossible here, and is logged once rather than every frame: the
+        // last version of this filled the console with the same line and
+        // buried everything else in the log.
+        contextComplaints++;
+        if (contextComplaints === 1) {
+          logError(this, `could not read the game state while opening the race menu:`, e);
+        }
+        return "cannot read the game state";
       }
       return "";
     };
@@ -934,7 +939,7 @@ export class RemoteServer extends ClientListener {
           return;
         }
       } catch (e) {
-        // Not being able to ask is not a reason to stop trying to open it.
+        // Counted by blockedBy below, which runs in the same pass.
       }
 
       if (elapsed >= giveUpMs) {
@@ -968,10 +973,17 @@ export class RemoteServer extends ClientListener {
           logError(this, `showRaceMenu threw on attempt ${attempts}:`, e);
         }
       }
-      this.controller.once("tick", step);
+      // update, never tick. Ui.isMenuOpen, Game.getPlayer and showRaceMenu are
+      // only callable from the game thread, and SkyrimPlatform gives us that
+      // thread in the update event and not in tick. Driving this off tick made
+      // every one of them throw "can't be called in this context", once a
+      // frame, and the menu could never open at all. The original code's
+      // once("update") was not a guess about timing, it was the only place
+      // these calls are legal.
+      this.controller.once("update", step);
     };
 
-    this.controller.once("tick", step);
+    this.controller.once("update", step);
   }
 
   /** Packet handlers end **/
