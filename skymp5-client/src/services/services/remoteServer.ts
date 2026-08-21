@@ -850,17 +850,85 @@ export class RemoteServer extends ClientListener {
     const msg = event.message;
 
     if (msg.open) {
-      // wait 0.3s cause we can see visual bugs when teleporting
-      // and showing this menu at the same time in onConnect
-      once('update', () =>
-        Utility.wait(0.3).then(() => {
-          unequipIronHelmet();
-          Game.showRaceMenu();
-        }),
-      );
+      logTrace(this, `race menu requested, waiting to be in the world`);
+      // update rather than tick, because this has to be in the world before
+      // the menu means anything.
+      this.controller.once('update', () => this.openRaceMenu());
     } else {
       // TODO: Implement closeMenu in SkyrimPlatform
     }
+  }
+
+  /**
+   * Opens character creation, and keeps trying until it is actually open.
+   *
+   * This used to be one unguarded chain: wait 0.3s, unequip the starting
+   * helmet, show the menu. Every part of that could fail in silence.
+   *
+   * unequipIronHelmet resolves a form and calls unequipItem on it, and an
+   * unequipItem with nothing to unequip throws. It sat in front of
+   * showRaceMenu in the same block with nothing catching it, so a cosmetic
+   * tidy-up could cancel character creation outright. The player arrives in
+   * the world with no way to make a character and there is no line anywhere
+   * saying why.
+   *
+   * Utility.wait was the other half. It runs on game time, which does not
+   * advance while the game is paused, so the one case that most needs the
+   * menu is the case where the wait never returns. Timing is off ticks now,
+   * which keep coming regardless.
+   *
+   * The server has already logged that it opened the menu by this point, so
+   * without this the two ends disagree and only the player can see it.
+   */
+  private openRaceMenu(): void {
+    const started = Date.now();
+    let attempts = 0;
+    // Long enough for the arrival teleport to settle. Showing the menu on top
+    // of a half drawn cell is what the original delay was avoiding.
+    const settleMs = 300;
+    const retryMs = 3000;
+
+    const step = () => {
+      const elapsed = Date.now() - started;
+      if (elapsed < settleMs) {
+        this.controller.once('tick', step);
+        return;
+      }
+
+      try {
+        if (this.sp.Ui.isMenuOpen('RaceSex Menu')) {
+          logTrace(this, `race menu is open, after ${attempts} attempt(s)`);
+          return;
+        }
+      } catch (e) {
+        // Not being able to ask is not a reason to stop trying to open it.
+        logError(this, `could not check whether the race menu is open:`, e);
+      }
+
+      if (attempts >= 3) {
+        logError(this, `race menu still not open after ${attempts} attempts, giving up`);
+        return;
+      }
+
+      if (elapsed >= settleMs + attempts * retryMs) {
+        attempts++;
+        // Guarded separately, so it can never take character creation with it.
+        try {
+          unequipIronHelmet();
+        } catch (e) {
+          logError(this, `could not unequip the starting helmet:`, e);
+        }
+        try {
+          Game.showRaceMenu();
+          logTrace(this, `showRaceMenu called, attempt ${attempts}`);
+        } catch (e) {
+          logError(this, `showRaceMenu threw on attempt ${attempts}:`, e);
+        }
+      }
+      this.controller.once('tick', step);
+    };
+
+    this.controller.once('tick', step);
   }
 
   /** Packet handlers end **/
