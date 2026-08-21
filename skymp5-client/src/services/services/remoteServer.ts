@@ -894,10 +894,16 @@ export class RemoteServer extends ClientListener {
     // A SkyMP arrival does not use the game's own Loading Menu, so asking
     // whether that is open answers "no" while the game is still coming up, the
     // player already exists, and everything looks ready. showRaceMenu there
-    // does nothing at all, silently. The gameLoad event is the real signal:
-    // loadGameService emits it when the game says it has finished.
-    let loadFinished = false;
-    this.controller.emitter.on("gameLoad", () => { loadFinished = true; });
+    // does nothing at all, silently.
+    //
+    // Asked of LoadGameService rather than listened for. Subscribing to the
+    // gameLoad event here only works if this runs before the load finishes,
+    // and the server now deliberately asks for the menu after the arrival has
+    // settled, which is after the event has already gone. The listener was
+    // registered too late every single time and the menu was never even
+    // attempted: "race menu did not open after 0 attempt(s), last waiting on:
+    // the game has not finished loading".
+    const loadGame = this.controller.lookupListener(LoadGameService);
 
     const settleMs = 500;
     const retryMs = 3000;
@@ -922,8 +928,12 @@ export class RemoteServer extends ClientListener {
 
     /** Empty when the game can accept the menu, otherwise why it cannot. */
     const blockedBy = (): string => {
-      if (!loadFinished) {
+      if (!loadGame.hasFinishedLoadingOnce) {
         return "the game has not finished loading";
+      }
+      // A second load, from switching character, has to finish as well.
+      if (loadGame.isLoadingGame) {
+        return "the game is loading";
       }
       try {
         if (this.sp.Ui.isMenuOpen("Main Menu")) {

@@ -8,7 +8,27 @@ export class LoadGameService extends ClientListener {
         this.controller.on("loadGame", () => this.onLoadGame());
     }
 
+    /**
+     * Whether a load has ever completed, and whether one is running now.
+     *
+     * Asked rather than announced on purpose. This used to be published only
+     * as the gameLoad event, so anything wanting to know had to be listening
+     * at the right moment: a listener registered one tick after the load
+     * finished waited for ever. That is not hypothetical, it is what stopped
+     * the race menu opening once the server started asking for it after the
+     * arrival rather than during it. State survives being asked late; an event
+     * does not.
+     */
+    public get hasFinishedLoadingOnce(): boolean {
+        return this._hasEverLoaded;
+    }
+
+    public get isLoadingGame(): boolean {
+        return this._isLoading;
+    }
+
     public loadGame(pos: number[], rot: number[], worldOrCell: number, changeFormNpc?: ChangeFormNpc, loadOrder?: string[], time?: { seconds: number, minutes: number, hours: number }) {
+        this._isLoading = true;
         // Traced on both sides of the call, because this is where people have
         // been getting stuck and the log went quiet at exactly this point. A
         // line before and nothing after cannot distinguish loadGame throwing,
@@ -111,6 +131,8 @@ export class LoadGameService extends ClientListener {
 
     private onLoadGame() {
         this._sawLoadEvent = true;
+        this._isLoading = false;
+        this._hasEverLoaded = true;
         logTrace(this, `game finished loading, caused by us: ${this._isCausedBySkyrimPlatform}`);
         try {
             const gameLoadEvent = {
@@ -132,4 +154,6 @@ export class LoadGameService extends ClientListener {
     private _loadWatchdogActive = false;
     private _sawLoadEvent = false;
     private _sawUpdate = false;
+    private _hasEverLoaded = false;
+    private _isLoading = false;
 }
