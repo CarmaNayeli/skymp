@@ -20,6 +20,25 @@ const STATE_EVENT_KEY = "voiceState";
  */
 const PUSH_TO_TALK_KEY = DxScanCode.V;
 
+/**
+ * How loudly you are speaking, on Alt and a number.
+ *
+ * Alt rather than the bare digits, because 1 to 8 are Skyrim's own hotbar and
+ * taking those would be worse than having no modes at all. Alt 1 is local and
+ * is where everyone starts, so the shortcut for it exists to get back rather
+ * than to go somewhere.
+ *
+ * Whisper and yell toggle: pressing the one you are already in returns you to
+ * local. Someone who has forgotten which mode they are in will press it again
+ * rather than reach for a third key, and ending up back at normal is the
+ * outcome they want either way.
+ */
+const VOICE_MODE_KEYS: { key: number; mode: "local" | "whisper" | "yell" }[] = [
+  { key: DxScanCode.N1, mode: "local" },
+  { key: DxScanCode.N2, mode: "whisper" },
+  { key: DxScanCode.N3, mode: "yell" },
+];
+
 /** How often the browser is told who is nearby. */
 const PROXIMITY_INTERVAL_MS = 500;
 
@@ -80,6 +99,7 @@ export class VoiceChatService extends ClientListener {
   }
 
   private onUpdate(): void {
+    this.updateVoiceMode();
     this.updatePushToTalk();
 
     const now = Date.now();
@@ -88,6 +108,42 @@ export class VoiceChatService extends ClientListener {
     }
     this.lastProximityPush = now;
     this.pushNearbyPeers();
+  }
+
+  private updateVoiceMode(): void {
+    let alt = false;
+    try {
+      alt = this.sp.Input.isKeyPressed(DxScanCode.LeftAlt);
+    } catch (e) {
+      return;
+    }
+
+    for (const { key, mode } of VOICE_MODE_KEYS) {
+      let down = false;
+      try {
+        down = alt && this.sp.Input.isKeyPressed(key);
+      } catch (e) {
+        return;
+      }
+      // On the press, not while held, or a mode would flip back and forth for
+      // as long as the key was down.
+      const wasDown = this.modeKeyDown[mode] === true;
+      this.modeKeyDown[mode] = down;
+      if (!down || wasDown) {
+        continue;
+      }
+
+      const next = this.voiceMode === mode ? "local" : mode;
+      this.voiceMode = next;
+      logTrace(this, `[voice] speaking ${next}`);
+      try {
+        this.sp.browser.executeJavaScript(
+          `window.hhVoice && window.hhVoice.setMode(${JSON.stringify(next)})`,
+        );
+      } catch (e) {
+        logError(this, `Failed to set voice mode`, e);
+      }
+    }
   }
 
   private updatePushToTalk(): void {
@@ -295,6 +351,8 @@ export class VoiceChatService extends ClientListener {
 
   private keyReadFailed = false;
   private lastKeyState = false;
+  private voiceMode: "local" | "whisper" | "yell" = "local";
+  private modeKeyDown: Record<string, boolean> = {};
   private transmitStartedAt = 0;
   private lastProximityPush = 0;
   private lastPeerCount = 0;

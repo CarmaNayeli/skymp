@@ -28,10 +28,35 @@ export const VOICE_RUNTIME_JS = `
   // that if you can hear someone you can usually also read them.
   var FULL_VOLUME_DISTANCE = 250;
   var MAX_DISTANCE = 2000;
+
+  // How far each way of speaking carries.
+  //
+  // The speaker chooses, the listener applies. Volume is worked out at the
+  // listening end from how far away the speaker is, so the speaker's mode has
+  // to travel to them: without that, a whisper would be heard across the room
+  // by anyone who had not been told it was a whisper.
+  //
+  // Local matches the numbers voice already used, so nothing changes for
+  // someone who never touches this.
+  var MODES = {
+    whisper: { full: 90, max: 450 },
+    local: { full: FULL_VOLUME_DISTANCE, max: MAX_DISTANCE },
+    yell: { full: 700, max: 5000 }
+  };
+  var DEFAULT_MODE = 'local';
+
+  function modeRange(mode) {
+    return MODES[mode] || MODES[DEFAULT_MODE];
+  }
+
+  // Peers are connected out to the widest mode rather than to local, because
+  // someone yelling from beyond local range has to already have a connection
+  // for anybody to hear them.
+  var CONNECT_DISTANCE = MODES.yell.max;
   // Connections are kept a little past the audible range so that pacing back
   // and forth over the boundary does not tear down and rebuild the peer
   // connection repeatedly.
-  var DROP_DISTANCE = MAX_DISTANCE * 1.25;
+  var DROP_DISTANCE = MODES.yell.max * 1.25;
 
   var state = {
     stream: null,
@@ -39,6 +64,7 @@ export const VOICE_RUNTIME_JS = `
     micError: null,
     transmitting: false,
     selfActorId: 0,
+    mode: DEFAULT_MODE,
     peers: {},
   };
 
@@ -100,10 +126,21 @@ export const VOICE_RUNTIME_JS = `
     ensureUi();
     if (!ui.root) { return; }
 
+    // Whisper and yell are shown, local is not. Local is what everyone is on
+    // almost always, and a permanent label saying so is noise; the other two
+    // are states you can forget you are in, which is the whole reason to show
+    // them.
+    var modeLabel = state.mode === 'whisper' ? ' (whisper)'
+      : state.mode === 'yell' ? ' (yell)' : '';
+    var modeColour = state.mode === 'whisper' ? '#9ec5e8'
+      : state.mode === 'yell' ? '#f0b06c' : '#8a8f98';
+
     if (state.micError) {
       ui.self.innerHTML = pill('Microphone unavailable', '#e8737d');
     } else if (state.transmitting) {
-      ui.self.innerHTML = pill('&#9679; Speaking', '#7fd98a');
+      ui.self.innerHTML = pill('&#9679; Speaking' + modeLabel, '#7fd98a');
+    } else if (modeLabel) {
+      ui.self.innerHTML = pill('Hold V to talk' + modeLabel, modeColour);
     } else {
       // Shown from the moment voice is running, not just once the microphone
       // has been acquired. The microphone is only asked for on the first press
@@ -185,7 +222,18 @@ export const VOICE_RUNTIME_JS = `
       // Any peer that connected while we were waiting has no outgoing track
       // yet, so attach to them now.
       Object.keys(state.peers).forEach(function (id) {
-        attachLocalTracks(state.peers[id]);
+        var peer = state.peers[id];
+        var had = peer.tracksAttached;
+        attachLocalTracks(peer);
+        if (peer.offerPending) {
+          // Held back until now precisely so this one carries the track.
+          peer.offerPending = false;
+          makeOffer(peer);
+        } else if (!had && peer.tracksAttached && peer.isCaller) {
+          // Already offered without a track, so the far end has to be told
+          // again. addTrack on its own says nothing to it.
+          makeOffer(peer);
+        }
       });
       refreshUi();
     }).catch(function (err) {
@@ -207,10 +255,11 @@ export const VOICE_RUNTIME_JS = `
     }
   }
 
-  function volumeForDistance(d) {
-    if (d <= FULL_VOLUME_DISTANCE) { return 1; }
-    if (d >= MAX_DISTANCE) { return 0; }
-    var t = (d - FULL_VOLUME_DISTANCE) / (MAX_DISTANCE - FULL_VOLUME_DISTANCE);
+  function volumeForDistance(d, mode) {
+    var range = modeRange(mode);
+    if (d <= range.full) { return 1; }
+    if (d >= range.max) { return 0; }
+    var t = (d - range.full) / (range.max - range.full);
     // Squared falloff, so voices fade out over the far half of the range
     // rather than dropping off a cliff at the edge.
     return (1 - t) * (1 - t);
@@ -248,6 +297,11 @@ export const VOICE_RUNTIME_JS = `
       // and both sides died on "Called in wrong state: have-remote-offer".
       isCaller: !!state.selfActorId && state.selfActorId < actorId,
       tracksAttached: false,
+      offerPending: false,
+      // Theirs, until they tell us otherwise. Assuming local is the safe
+      // default: it is the middle range, so a whisper is never accidentally
+      // carried further than it should be.
+      mode: DEFAULT_MODE,
       pendingIce: [],
       haveRemote: false,
       talking: false,
@@ -274,19 +328,45 @@ export const VOICE_RUNTIME_JS = `
         // until the key was released and pressed again.
         signal(actorId, { kind: 'talking', on: true });
       }
+      if (pc.connectionState === 'connected' && state.mode !== DEFAULT_MODE) {
+        // They have just met us and would otherwise assume we speak normally.
+        signal(actorId, { kind: 'mode', mode: state.mode });
+      }
     };
 
     state.peers[actorId] = peer;
     attachLocalTracks(peer);
 
     if (peer.isCaller) {
-      pc.createOffer().then(function (offer) {
-        return pc.setLocalDescription(offer).then(function () {
-          signal(actorId, { kind: 'offer', sdp: pc.localDescription });
-        });
-      }).catch(function (e) { report('error', 'offer failed: ' + e); });
+      // Wait for the microphone rather than offering without it. Offering now
+      // and renegotiating later would work, but it means two exchanges per peer
+      // for no reason, and the far end briefly believes we are receive only.
+      if (state.stream) {
+        makeOffer(peer);
+      } else {
+        peer.offerPending = true;
+      }
     }
     return peer;
+  }
+
+  // Offering, in one place, because it has to happen again once the microphone
+  // arrives.
+  //
+  // ensureMic is called on the same tick as createPeer and getUserMedia is
+  // asynchronous, so the stream is never ready in time. That is not a race that
+  // usually goes the right way, it always goes the wrong way: the first offer
+  // carries no audio track and the answer comes back recvonly, so holding the
+  // key transmits into a connection with no path out. Attaching the track later
+  // is not enough on its own either, because addTrack after the exchange needs
+  // a fresh offer before the far end knows about it.
+  function makeOffer(peer) {
+    var pc = peer.pc;
+    pc.createOffer().then(function (offer) {
+      return pc.setLocalDescription(offer).then(function () {
+        signal(peer.actorId, { kind: 'offer', sdp: pc.localDescription });
+      });
+    }).catch(function (e) { report('error', 'offer failed: ' + e); });
   }
 
   function removePeer(actorId) {
@@ -321,6 +401,12 @@ export const VOICE_RUNTIME_JS = `
     // it is not worth creating a connection over.
     if (payload.kind === 'talking') {
       setPeerTalking(fromActorId, !!payload.on);
+      return;
+    }
+
+    // How loudly they are speaking, which is ours to apply rather than theirs.
+    if (payload.kind === 'mode') {
+      if (peer) { peer.mode = MODES[payload.mode] ? payload.mode : DEFAULT_MODE; }
       return;
     }
 
@@ -394,14 +480,15 @@ export const VOICE_RUNTIME_JS = `
         seen[id] = true;
         var peer = state.peers[id];
         if (!peer) {
-          if (entry.distance > MAX_DISTANCE) { return; }
+          if (entry.distance > CONNECT_DISTANCE) { return; }
           ensureMic();
           peer = createPeer(id, entry.name);
           if (!peer) { return; }
         }
         if (entry.name) { peer.name = entry.name; }
         peer.distance = entry.distance;
-        peer.audio.volume = volumeForDistance(entry.distance);
+        // Their mode, not ours. We are deciding how loudly to play them.
+        peer.audio.volume = volumeForDistance(entry.distance, peer.mode);
       });
       // Anyone who left the list entirely has gone out of range, changed cell,
       // or disconnected.
@@ -413,6 +500,20 @@ export const VOICE_RUNTIME_JS = `
         }
       });
       refreshUi();
+    },
+
+    // Which of the three ranges we are speaking at. Everyone we are connected
+    // to is told, because the range is applied at their end, not ours.
+    setMode: function (mode) {
+      var next = MODES[mode] ? mode : DEFAULT_MODE;
+      if (state.mode === next) { return state.mode; }
+      state.mode = next;
+      Object.keys(state.peers).forEach(function (id) {
+        signal(Number(id), { kind: 'mode', mode: next });
+      });
+      report('info', 'speaking ' + next);
+      refreshUi();
+      return state.mode;
     },
 
     setTransmitting: function (on) {
@@ -451,6 +552,7 @@ export const VOICE_RUNTIME_JS = `
       return {
         micReady: !!state.stream,
         micError: state.micError,
+        mode: state.mode,
         transmitting: state.transmitting,
         peers: Object.keys(state.peers).length
       };
@@ -459,5 +561,11 @@ export const VOICE_RUNTIME_JS = `
 
   refreshUi();
   report('info', 'voice runtime loaded');
+
+  // Up front rather than on first contact. The permission is granted by our own
+  // CEF handler so nothing is shown to the player, and having the stream in
+  // hand before anyone walks into range is what keeps the first offer from
+  // going out mute.
+  ensureMic();
 })();
 `;
