@@ -888,24 +888,36 @@ export class RemoteServer extends ClientListener {
   private openRaceMenu(): void {
     const started = Date.now();
     let attempts = 0;
-    let lastBlockedBy = "";
     let contextComplaints = 0;
-    // Long enough for the arrival teleport to settle. Showing the menu on top
-    // of a half drawn cell is what the original delay was avoiding.
+    // The load has to have finished, and the menus cannot tell us that.
+    //
+    // A SkyMP arrival does not use the game's own Loading Menu, so asking
+    // whether that is open answers "no" while the game is still coming up, the
+    // player already exists, and everything looks ready. showRaceMenu there
+    // does nothing at all, silently. The gameLoad event is the real signal:
+    // loadGameService emits it when the game says it has finished.
+    let loadFinished = false;
+    this.controller.emitter.on("gameLoad", () => { loadFinished = true; });
+
     const settleMs = 500;
     const retryMs = 3000;
-    // The whole point is to outlast a slow load, so this waits far longer than
-    // feels necessary. Somebody staring at a world they cannot make a
-    // character in would rather it arrive late than never.
-    const giveUpMs = 90000;
+    // Three, not thirty. Retrying is for a call that did not take, and calling
+    // showRaceMenu again while somebody is already in the menu restarts it
+    // underneath them, which is worse than not retrying at all. If three
+    // spaced attempts have not opened it, more will not either.
+    const maxAttempts = 3;
+    // Long enough for a slow load, after which a retry is no longer plausibly
+    // helping.
+    const giveUpMs = 120000;
     let nextAttemptAt = settleMs;
+    let lastBlockedBy = "";
 
     /** Empty when the game can accept the menu, otherwise why it cannot. */
     const blockedBy = (): string => {
+      if (!loadFinished) {
+        return "the game has not finished loading";
+      }
       try {
-        if (this.sp.Ui.isMenuOpen("Loading Menu")) {
-          return "still on the loading screen";
-        }
         if (this.sp.Ui.isMenuOpen("Main Menu")) {
           return "still at the main menu";
         }
@@ -917,10 +929,8 @@ export class RemoteServer extends ClientListener {
           return "player is not in a cell yet";
         }
       } catch (e) {
-        // Only ever seen as "can't be called in this context", which should be
-        // impossible here, and is logged once rather than every frame: the
-        // last version of this filled the console with the same line and
-        // buried everything else in the log.
+        // Logged once rather than every frame: an earlier version filled the
+        // console with the same line and buried everything else.
         contextComplaints++;
         if (contextComplaints === 1) {
           logError(this, `could not read the game state while opening the race menu:`, e);
@@ -942,10 +952,10 @@ export class RemoteServer extends ClientListener {
         // Counted by blockedBy below, which runs in the same pass.
       }
 
-      if (elapsed >= giveUpMs) {
+      if (attempts >= maxAttempts || elapsed >= giveUpMs) {
         logError(
           this,
-          `race menu never opened after ${attempts} attempt(s),`,
+          `race menu did not open after ${attempts} attempt(s),`,
           `last waiting on: ${lastBlockedBy || "nothing"}`,
         );
         return;
@@ -974,12 +984,8 @@ export class RemoteServer extends ClientListener {
         }
       }
       // update, never tick. Ui.isMenuOpen, Game.getPlayer and showRaceMenu are
-      // only callable from the game thread, and SkyrimPlatform gives us that
-      // thread in the update event and not in tick. Driving this off tick made
-      // every one of them throw "can't be called in this context", once a
-      // frame, and the menu could never open at all. The original code's
-      // once("update") was not a guess about timing, it was the only place
-      // these calls are legal.
+      // only callable on the game thread, and SkyrimPlatform gives us that
+      // thread in update and not in tick.
       this.controller.once("update", step);
     };
 
