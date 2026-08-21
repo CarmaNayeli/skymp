@@ -580,6 +580,7 @@ export class FormView {
         if (!this.textNameId && headScreenPos[2] > 0) {
           this.textNameId = createText(textXPos, textYPos, refr.getDisplayName(), [1, 1, 1, 0.8]);
           setTextSize(this.textNameId, 0.5);
+          this.createSerialTag(textXPos, textYPos);
           this.applyNicknameVoiceColor();
           SpApiInteractor.getControllerInstance().emitter.emit("nicknameCreate", {
             remoteRefrId: this.getRemoteRefrId(),
@@ -592,6 +593,9 @@ export class FormView {
           }
           if (this.textNameId) {
             setTextPos(this.textNameId, textXPos, textYPos);
+            if (this.textSerialId) {
+              setTextPos(this.textSerialId, textXPos, textYPos + FormView.serialLineOffset);
+            }
             this.applyNicknameVoiceColor();
           }
         }
@@ -625,6 +629,56 @@ export class FormView {
   }
 
   private nicknameShowsTalking = false;
+  private textSerialId?: number;
+
+  /**
+   * How far under the name the serial sits, in pixels.
+   *
+   * Small enough to read as part of the same tag rather than as a separate
+   * label floating nearby, and it does not scale with resolution because
+   * neither does the text size it sits under.
+   */
+  private static readonly serialLineOffset = 22;
+
+  /**
+   * The player's serial, drawn as a second line under their name.
+   *
+   * A character is a person and its name is theirs, but out of character it
+   * still matters that the person you were just talking to is the same person
+   * behind a different face. So the number belongs to the account, not the
+   * character, and sits under the name where it reads as what it is rather
+   * than as part of what they are called.
+   *
+   * The value arrives through the hhSerial property, whose snippet stores it
+   * into sp.storage keyed by form id (see gamemode.js). Nothing here asks the
+   * server for it: by the time a nametag is being drawn the value is already
+   * there, and if it is not, the tag is simply drawn without it.
+   */
+  private createSerialTag(x: number, y: number): void {
+    const serial = this.lookupSerial();
+    if (!serial) {
+      return;
+    }
+    this.textSerialId = createText(x, y + FormView.serialLineOffset, serial, [0.75, 0.75, 0.8, 0.7]);
+    // Smaller than the name, so it reads as a subtitle rather than competing
+    // with it.
+    setTextSize(this.textSerialId, 0.38);
+  }
+
+  private lookupSerial(): string {
+    try {
+      const map = storage["hhSerials"];
+      if (typeof map !== "object" || map === null) {
+        return "";
+      }
+      // Keyed by the local form id, which is what the property snippet reads
+      // off ctx.refr on this same machine.
+      const value = (map as Record<number, unknown>)[this.refrId as number];
+      return typeof value === "string" ? value : "";
+    } catch (e) {
+      return "";
+    }
+  }
 
   private isSweetHidePerson(refr: ObjectReference): boolean {
     const actor = Actor.from(refr)
@@ -639,6 +693,10 @@ export class FormView {
     // A recreated nametag starts at the default colour, so the remembered
     // state has to go with the old one or the tint would not be reapplied.
     this.nicknameShowsTalking = false;
+    if (this.textSerialId) {
+      destroyText(this.textSerialId);
+      this.textSerialId = undefined;
+    }
     if (this.textNameId) {
       SpApiInteractor.getControllerInstance().emitter.emit("nicknameDestroy", {
         remoteRefrId: this.getRemoteRefrId(),
