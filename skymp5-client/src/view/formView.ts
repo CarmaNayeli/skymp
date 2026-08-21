@@ -339,6 +339,7 @@ export class FormView {
   // Not a one-shot flag like the others: a builder changing scale expects to
   // see it change, and the new value arrives as a plain property update.
   private appliedScale: number | undefined = undefined;
+  private appliedDisplayName: string | undefined = undefined;
 
   private applyAll(refr: ObjectReference, model: FormModel) {
     let forcedWeapDrawn: boolean | null = null;
@@ -363,6 +364,13 @@ export class FormView {
     if (model.scale !== this.appliedScale) {
       this.appliedScale = model.scale;
       ModelApplyUtils.applyModelScale(refr, model.scale);
+    }
+    // Server-created objects never had this applied at all. remoteServer only
+    // handles it on the espm path, and anything placed in game is an FF form,
+    // so a named placement showed its base record's name and nothing else.
+    if (model.displayName !== this.appliedDisplayName) {
+      this.appliedDisplayName = model.displayName;
+      ModelApplyUtils.applyModelDisplayName(refr, model.displayName);
     }
     if (!this.isSetNodeTextureSetApplied) {
       this.isSetNodeTextureSetApplied = true;

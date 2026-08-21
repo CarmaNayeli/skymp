@@ -117,6 +117,20 @@ export class ModelApplyUtils {
     }
   }
 
+  // keep in sync with remoteServer.ts, which does the same for espm forms
+  static applyModelDisplayName(refr: ObjectReference, displayName?: string) {
+    if (typeof displayName !== "string") {
+      return;
+    }
+    let name = displayName;
+    const replaceValue = refr.getBaseObject()?.getName();
+    if (replaceValue !== undefined) {
+      name = name.replace(/%original_name%/g, replaceValue);
+    }
+    refr.setDisplayName(name, true);
+    logTrace("ModelApplyUtils", refr.getFormID().toString(16), `Applied display name`, name);
+  }
+
   static applyModelScale(refr: ObjectReference, scale?: number) {
     if (typeof scale === "number") {
       refr.setScale(scale);
