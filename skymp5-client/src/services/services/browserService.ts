@@ -86,6 +86,19 @@ export class BrowserService extends ClientListener {
   private onMenuOpen(e: MenuOpenEvent) {
     if (this.isBadMenu(e.name)) {
       this.sp.browser.setVisible(false);
+      // Hidden is not the same as unfocused, and only the second one gives the
+      // keyboard back. A browser that is invisible but still focused keeps
+      // every keystroke, so the game menu that just opened receives nothing at
+      // all. That is what left somebody sitting in the race menu unable to
+      // type a name: the letters were going to a chat box they could not see.
+      //
+      // Every menu in this list is one the player is meant to be interacting
+      // with instead of the browser, so taking focus back is right for all of
+      // them, not only the race menu.
+      if (this.sp.browser.isFocused()) {
+        this.sp.browser.setFocused(false);
+        this.sp.browser.executeJavaScript(unfocusEventString);
+      }
       this.badMenusOpen.add(e.name);
     } else if (e.name === Menu.HUD) {
       this.sp.browser.setVisible(true);
