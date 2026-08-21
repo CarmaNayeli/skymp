@@ -91,8 +91,20 @@ export class VoiceChatService extends ClientListener {
     // already present. Doing it on every load matters because the front can
     // reload underneath us and take the runtime with it.
     try {
+      // The overlay address of our own server, handed to the runtime for use
+      // as a STUN server. Read from settings rather than baked in, so it
+      // follows the server the client was actually pointed at.
+      let stunHost = "";
+      try {
+        stunHost = String((this.sp.settings["skymp5-client"] || {})["server-ip"] || "");
+      } catch (e) {
+        logError(this, `Could not read server-ip for voice STUN`, e);
+      }
+      this.sp.browser.executeJavaScript(
+        `window.hhVoiceStunHost = ${JSON.stringify(stunHost)};`,
+      );
       this.sp.browser.executeJavaScript(VOICE_RUNTIME_JS);
-      logTrace(this, `Voice runtime injected`);
+      logTrace(this, `Voice runtime injected, stun host ${stunHost || "none"}`);
     } catch (e) {
       logError(this, `Failed to inject the voice runtime`, e);
     }

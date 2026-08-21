@@ -9,9 +9,21 @@
  *
  * Audio never touches the game or the server. The server relays only SDP and
  * ICE (see the voiceSignal handler in gamemode.js); the media itself is peer
- * to peer. Every player is on the same NetBird overlay, so host candidates
- * reach each other directly and no STUN or TURN server is required, which also
- * means voice keeps working with no outside internet dependency.
+ * to peer.
+ *
+ * Every player is on the same NetBird overlay, so peers can reach each other
+ * directly. That is not the same as saying no STUN server is needed, which is
+ * what this used to claim. Chromium does not put local IPs in host candidates
+ * at all: it replaces them with random mDNS names, and a name like
+ * "6265deea-....local" cannot be resolved by another machine across an overlay
+ * network. So every candidate was unroutable and every connection failed,
+ * while the indicator, which rides on the server's signalling, kept working
+ * perfectly and made it look like audio was flowing.
+ *
+ * The fix stays inside the overlay: NetBird's own container answers STUN on
+ * 3478, so asking it produces a server reflexive candidate holding the peer's
+ * NetBird address, which every other peer can route to. Still no outside
+ * internet dependency, and still no relay: the media remains peer to peer.
  *
  * The on-screen indicator is drawn as a plain DOM element appended to the
  * document, deliberately NOT as a SkyrimPlatform widget: widgets are replaced
@@ -293,9 +305,15 @@ export const VOICE_RUNTIME_JS = `
   function createPeer(actorId, name) {
     var pc;
     try {
-      // No iceServers on purpose: everyone shares a NetBird overlay network,
-      // so host candidates connect directly.
-      pc = new RTCPeerConnection({ iceServers: [] });
+      // STUN against our own server, over the overlay. Chromium hides local
+      // IPs behind mDNS names that no other machine can resolve, so host
+      // candidates are useless here; the reflexive candidate this produces
+      // carries the peer's NetBird address, which every other peer can reach.
+      var iceServers = [];
+      if (window.hhVoiceStunHost) {
+        iceServers.push({ urls: 'stun:' + window.hhVoiceStunHost + ':3478' });
+      }
+      pc = new RTCPeerConnection({ iceServers: iceServers });
     } catch (e) {
       report('error', 'RTCPeerConnection unavailable: ' + e);
       return null;
