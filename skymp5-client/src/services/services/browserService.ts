@@ -200,6 +200,18 @@ export class BrowserService extends ClientListener {
     Menu.Stats,
     Menu.Tween,
     Menu.Console,
-    Menu.Main,
+    // Main is deliberately absent, unlike in typingBlockers above.
+    //
+    // The character screen is shown at the main menu, before anyone has
+    // spawned, so that is the one moment the overlay must be on screen rather
+    // than hidden. It worked by accident: the main menu opens once at startup,
+    // before the client has connected, so nothing was listening yet and the
+    // setVisible(true) that draws the screen came afterwards and won.
+    //
+    // A main menu replacer breaks that accident by opening the menu again once
+    // we are listening. The screen is drawn, the event arrives, the overlay is
+    // hidden, and the player is left looking at a main menu with no way in and
+    // nothing in any log: the server sent the screen and the client says it
+    // showed it.
   ];
 }
