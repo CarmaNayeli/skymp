@@ -72,23 +72,6 @@ struct FakeIDirectInputDevice8A
   FakeIDirectInputDevice8A(IDirectInputDevice8A* apDevice)
     : m_pDevice(apDevice)
   {
-    // Hold our own reference for as long as this wrapper exists.
-    //
-    // The wrapper has no reference count of its own, so its lifetime was tied
-    // to the real device's, a counter other code can move without going
-    // through us. QueryInterface below hands out the real pointer for any IID,
-    // so anything that queried it and released it could take the device to
-    // zero while the game still held this wrapper and kept polling it. The
-    // device was then freed underneath GetDeviceState, which is a valid
-    // pointer with a valid vtable and a torn down interior: the fault lands
-    // two frames inside DINPUT8 reading a null member, not in our call.
-    //
-    // With a reference of our own the device cannot be freed while we can
-    // still be called. The cost when counts are skewed is a leaked device
-    // rather than an access violation.
-    if (m_pDevice) {
-      IDirectInputDevice8_AddRef(m_pDevice);
-    }
   }
 
   virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid,
@@ -252,12 +235,6 @@ static Set<FakeIDirectInputDevice8A*> s_devices;
 HRESULT _stdcall FakeIDirectInputDevice8A::GetDeviceState(DWORD outDataLen,
                                                           LPVOID outData)
 {
-  // Released already. Skyrim keeps polling its cached device for a while after
-  // letting go of it, and there is nothing useful to report, so say so quietly
-  // rather than reaching through a pointer we no longer own.
-  if (!m_pDevice)
-    return DI_OK;
-
   if (!g_listener)
     return DI_OK;
   g_listener->OnUpdate();
@@ -308,13 +285,6 @@ HRESULT _stdcall FakeIDirectInputDevice8A::GetDeviceData(
   DWORD dataSize, LPDIDEVICEOBJECTDATA outData, LPDWORD outDataLen,
   DWORD flags)
 {
-  if (!m_pDevice) {
-    if (outDataLen) {
-      *outDataLen = 0;
-    }
-    return DI_OK;
-  }
-
   DInputHook::Get().RunTasks();
 
   auto& input = DInputHook::Get();
@@ -347,25 +317,11 @@ HRESULT _stdcall FakeIDirectInputDevice8A::GetDeviceData(
 
 ULONG _stdcall FakeIDirectInputDevice8A::Release()
 {
-  if (!m_pDevice) {
-    return 0;
-  }
-
   const auto result = IDirectInputDevice8_Release(m_pDevice);
-
-  // 1 rather than 0, because one of those references is the one taken in the
-  // constructor. Reaching it means every caller has let go.
-  if (result == 1) {
+  if (result == 0) {
     s_devices.erase(this);
 
-    IDirectInputDevice8_Release(m_pDevice);
-    m_pDevice = nullptr;
-
-    // Deliberately not deleted. Skyrim caches this pointer in its own device
-    // objects, and freeing the wrapper turns a stale poll into a use after
-    // free of our own making. Nulling the device makes a late call harmless
-    // instead, at the cost of a few dozen bytes per device for the session.
-    return 0;
+    delete this;
   }
 
   return result;
