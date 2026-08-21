@@ -901,13 +901,21 @@ export class RemoteServer extends ClientListener {
 
     const settleMs = 500;
     const retryMs = 3000;
-    // Three, not thirty. Retrying is for a call that did not take, and calling
-    // showRaceMenu again while somebody is already in the menu restarts it
-    // underneath them, which is worse than not retrying at all. If three
-    // spaced attempts have not opened it, more will not either.
-    const maxAttempts = 3;
-    // Long enough for a slow load, after which a retry is no longer plausibly
-    // helping.
+    // Keep trying for a good while, because arriving is not one moment.
+    //
+    // The load finishing is necessary and not sufficient. In the seconds
+    // after it the server is still teleporting the player to the arrival
+    // point, handing over the starting gear, taking the vanilla kit back off
+    // and stripping spells. showRaceMenu during any of that does nothing and
+    // says nothing, so a few attempts spaced over six seconds all landed in
+    // the churn and the menu never opened. A build that simply kept asking
+    // for ninety seconds worked, for one player, on the same code path.
+    //
+    // Safe to repeat: every pass first asks whether the menu is already open
+    // and stops if it is, so this cannot restart the menu under somebody who
+    // is using it. That was the worry that made it three, and the check is
+    // what makes the worry unfounded.
+    const maxAttempts = 20;
     const giveUpMs = 120000;
     let nextAttemptAt = settleMs;
     let lastBlockedBy = "";
