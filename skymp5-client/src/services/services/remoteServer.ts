@@ -850,10 +850,15 @@ export class RemoteServer extends ClientListener {
     const msg = event.message;
 
     if (msg.open) {
-      logTrace(this, `race menu requested, waiting to be in the world`);
-      // update rather than tick, because this has to be in the world before
-      // the menu means anything.
-      this.controller.once('update', () => this.openRaceMenu());
+      logTrace(this, `race menu requested`);
+      // Not gated on the "update" event any more. This message arrives while
+      // the client is still loading, because the server spawns the player and
+      // then asks for the menu, and waiting for "update" was a bet on when
+      // SkyrimPlatform first fires it during that load. openRaceMenu decides
+      // for itself whether the game can take the menu yet, by looking at the
+      // loading screen, the main menu and the player, which is answerable at
+      // any point rather than only at the right one.
+      this.openRaceMenu();
     } else {
       // TODO: Implement closeMenu in SkyrimPlatform
     }
@@ -883,35 +888,73 @@ export class RemoteServer extends ClientListener {
   private openRaceMenu(): void {
     const started = Date.now();
     let attempts = 0;
+    let lastBlockedBy = "";
     // Long enough for the arrival teleport to settle. Showing the menu on top
     // of a half drawn cell is what the original delay was avoiding.
-    const settleMs = 300;
+    const settleMs = 500;
     const retryMs = 3000;
+    // The whole point is to outlast a slow load, so this waits far longer than
+    // feels necessary. Somebody staring at a world they cannot make a
+    // character in would rather it arrive late than never.
+    const giveUpMs = 90000;
+    let nextAttemptAt = settleMs;
+
+    /** Empty when the game can accept the menu, otherwise why it cannot. */
+    const blockedBy = (): string => {
+      try {
+        if (this.sp.Ui.isMenuOpen("Loading Menu")) {
+          return "still on the loading screen";
+        }
+        if (this.sp.Ui.isMenuOpen("Main Menu")) {
+          return "still at the main menu";
+        }
+      } catch (e) {
+        return `could not read the menus: ${e}`;
+      }
+      try {
+        const self = this.sp.Game.getPlayer();
+        if (!self) {
+          return "no player yet";
+        }
+        if (!self.getParentCell()) {
+          return "player is not in a cell yet";
+        }
+      } catch (e) {
+        return `could not read the player: ${e}`;
+      }
+      return "";
+    };
 
     const step = () => {
       const elapsed = Date.now() - started;
-      if (elapsed < settleMs) {
-        this.controller.once('tick', step);
-        return;
-      }
 
       try {
-        if (this.sp.Ui.isMenuOpen('RaceSex Menu')) {
+        if (this.sp.Ui.isMenuOpen("RaceSex Menu")) {
           logTrace(this, `race menu is open, after ${attempts} attempt(s)`);
           return;
         }
       } catch (e) {
         // Not being able to ask is not a reason to stop trying to open it.
-        logError(this, `could not check whether the race menu is open:`, e);
       }
 
-      if (attempts >= 3) {
-        logError(this, `race menu still not open after ${attempts} attempts, giving up`);
+      if (elapsed >= giveUpMs) {
+        logError(
+          this,
+          `race menu never opened after ${attempts} attempt(s),`,
+          `last waiting on: ${lastBlockedBy || "nothing"}`,
+        );
         return;
       }
 
-      if (elapsed >= settleMs + attempts * retryMs) {
+      const blocked = blockedBy();
+      if (blocked !== lastBlockedBy) {
+        lastBlockedBy = blocked;
+        logTrace(this, `race menu ${blocked ? `waiting: ${blocked}` : "ready to open"}`);
+      }
+
+      if (!blocked && elapsed >= nextAttemptAt) {
         attempts++;
+        nextAttemptAt = elapsed + retryMs;
         // Guarded separately, so it can never take character creation with it.
         try {
           unequipIronHelmet();
@@ -925,10 +968,10 @@ export class RemoteServer extends ClientListener {
           logError(this, `showRaceMenu threw on attempt ${attempts}:`, e);
         }
       }
-      this.controller.once('tick', step);
+      this.controller.once("tick", step);
     };
 
-    this.controller.once('tick', step);
+    this.controller.once("tick", step);
   }
 
   /** Packet handlers end **/
