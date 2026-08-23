@@ -52,16 +52,33 @@ float CropRegeneration(float newAttributeValue, float secondsAfterLastRegen,
                 "newAttributeValue={}, validAttributePercentage={}",
                 newAttributeValue, validAttributePercentage);
 
-  if (newAttributeValue > validAttributePercentage) {
-    return validAttributePercentage;
+  // An increase past what regeneration alone allows is not cheating here.
+  //
+  // This used to clip anything above validAttributePercentage back down to it,
+  // which is a reasonable guard against a client inventing health on a public
+  // server and is catastrophic on this one. A healing spell restores far more
+  // than natural regeneration ever could, so every heal was above the ceiling,
+  // every heal was clipped, and the clipped value went straight back to the
+  // client. What a player saw was their health filling and then snapping back
+  // a moment later, every time, with nothing in any log to say why.
+  //
+  // The intended escape hatch is the block that used to sit here commented
+  // out, and it was dead twice over. It never ran, and had it run it would
+  // never have been true for a spell: hasActiveMagicEffects is only ever set
+  // by ApplyMagicEffects, which the whole server calls from exactly one place,
+  // EatItemEvent. Eating and drinking registered an effect. Casting did not.
+  // So as far as this check was concerned, a healing spell had never happened.
+  //
+  // Hearthheld is invite only and every player is known, so what this guarded
+  // against is not a threat here, while what it broke is most of a school of
+  // magic. The bounds still hold: a percentage cannot leave nought to one, and
+  // a drop is still a drop, so damage and death are untouched.
+  if (newAttributeValue > kMaxOldPercentage) {
+    return kMaxOldPercentage;
   }
   if (newAttributeValue < 0.0f) {
     return 0.0f;
   }
-  // if (hasActiveMagicEffects &&
-  //    !MathUtils::IsNearlyEqual(oldAttributeValue, kMaxOldPercentage)) {
-  //  return validAttributePercentage;
-  // }
   return newAttributeValue;
 }
 

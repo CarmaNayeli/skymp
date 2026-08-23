@@ -27,16 +27,20 @@ TEST_CASE("CropRegeneration function is working correctly",
                            false) == newAttributeValue);
 }
 
-TEST_CASE(
-  "CropRegeneration returns oldAttributeValue if regeneration is not positive",
-  "[CropRegeneration]")
+TEST_CASE("CropRegeneration keeps a rise the client reports even when "
+          "regeneration alone could not have managed it",
+          "[CropRegeneration]")
 {
+  // This used to return oldAttributeValue, on the grounds that a client
+  // cannot regenerate faster than its rate allows. True, and beside the
+  // point: a healing spell is not regeneration, and clipping it to what
+  // regeneration allows is what made every heal snap back.
   float oldAttributeValue = 0.6f;
 
   float newAttributeValue = oldAttributeValue + 0.007f;
 
   REQUIRE(CropRegeneration(newAttributeValue, 1.0f, 0.7f, -100.0f,
-                           oldAttributeValue, false) == oldAttributeValue);
+                           oldAttributeValue, false) == newAttributeValue);
 }
 
 TEST_CASE(
@@ -53,11 +57,13 @@ TEST_CASE("CropRegeneration returns 1 if newAttributeValue is more then 1 "
   REQUIRE(CropRegeneration(1.05f, 1.0f, 5.0f, 100.0f, 1.0f, false) == 1.0f);
 }
 
-TEST_CASE("CropRegeneration returns the correct value if newAttributeValue is "
-          "too large but oldAttributeValue is equal to zero",
+TEST_CASE("CropRegeneration lets somebody go from nothing to full, because a "
+          "spell can do that",
           "[CropRegeneration]")
 {
-  REQUIRE(CropRegeneration(1.0f, 1.0f, 5.0f, 100.0f, 0.0f, false) == 0.05f);
+  // Formerly 0.05f, which is what a second of regeneration is worth from
+  // nothing. Somebody healed off the floor is the exact case this broke.
+  REQUIRE(CropRegeneration(1.0f, 1.0f, 5.0f, 100.0f, 0.0f, false) == 1.0f);
 }
 
 TEST_CASE("CropPeriodAfterLastRegen returns 0 if period < 0",
@@ -100,12 +106,8 @@ TEST_CASE("CropHealthRegeneration, CropMagickaRegeneration and "
   p.SetUserActor(0, 0xff000000);
   auto& ac = p.worldState.GetFormAt<MpActor>(0xff000000);
 
-  uint32_t baseId = ac.GetBaseId();
-  auto appearance = ac.GetAppearance();
-  uint32_t raceId = appearance ? appearance->raceId : 0;
-  BaseActorValues baseValues =
-    GetBaseActorValues(&p.worldState, baseId, raceId, {});
-
+  // The rates were read here to work out what a second of regeneration comes
+  // to. Nothing needs that now: what comes back is what was reported.
   ac.SetPercentages({ 0.0f, 0.0f, 0.0f });
 
   auto past = std::chrono::steady_clock::now();
@@ -114,19 +116,22 @@ TEST_CASE("CropHealthRegeneration, CropMagickaRegeneration and "
   std::chrono::duration<float> timeDuration = now - past;
   float time = timeDuration.count();
 
-  float expectedHealth =
-    baseValues.healRate * baseValues.healRateMult * time / 10000.0f;
-  float expectedMagicka =
-    baseValues.magickaRate * baseValues.magickaRateMult * time / 10000.0f;
-  float expectedStamina =
-    baseValues.staminaRate * baseValues.staminaRateMult * time / 10000.0f;
-
+  // All three used to come back as one second of natural regeneration from
+  // zero, whatever the client said. They now come back as what the client
+  // said, bounded to one: a potion, a shrine and a healing spell all look
+  // exactly like this from here, and none of them is regeneration.
   REQUIRE_THAT(CropHealthRegeneration(1.0f, time, &ac),
-               Catch::Matchers::WithinAbs(expectedHealth, 0.000001f));
+               Catch::Matchers::WithinAbs(1.0f, 0.000001f));
   REQUIRE_THAT(CropMagickaRegeneration(1.0f, time, &ac),
-               Catch::Matchers::WithinAbs(expectedMagicka, 0.000001f));
+               Catch::Matchers::WithinAbs(1.0f, 0.000001f));
   REQUIRE_THAT(CropStaminaRegeneration(1.0f, time, &ac),
-               Catch::Matchers::WithinAbs(expectedStamina, 0.000001f));
+               Catch::Matchers::WithinAbs(1.0f, 0.000001f));
+
+  // And a drop is still a drop, which is what keeps damage and death working.
+  REQUIRE_THAT(CropHealthRegeneration(0.25f, time, &ac),
+               Catch::Matchers::WithinAbs(0.25f, 0.000001f));
+  REQUIRE_THAT(CropHealthRegeneration(-1.0f, time, &ac),
+               Catch::Matchers::WithinAbs(0.0f, 0.000001f));
 
   p.DestroyActor(0xff000000);
   DoDisconnect(p, 0);
