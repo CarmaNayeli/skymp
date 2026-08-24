@@ -80,10 +80,21 @@ export class CharacterSelectService extends ClientListener {
         var css = document.createElement('style');
         css.id = 'hh-charselect-css';
         css.textContent =
-          '.button-middle { font-size: clamp(15px, 1.35vw, 24px) !important; }' +
-          '.button-middle * { overflow: visible !important;' +
+          // Scoped, every one of them, because the style element outlives the
+          // screen. Only the body class comes off on the way into the world, so
+          // an unscoped rule here is a rule that applies to every window of the
+          // session. Three of these were unscoped and did exactly that: every
+          // button in the game became up to 24px with wrapping text, which is
+          // most visible in the catalogs, where each row is a button. A page of
+          // them grew tall enough that the frame stopped fitting the screen and
+          // the scroll offset moved to a box the page reset was not looking at,
+          // which brought back the page three bug it had already fixed once.
+          'body.hh-charselect .button-middle {' +
+          ' font-size: clamp(15px, 1.35vw, 24px) !important; }' +
+          'body.hh-charselect .button-middle * { overflow: visible !important;' +
           ' text-overflow: clip !important; white-space: normal !important; }' +
-          '.skymp-input-button_text { font-size: clamp(15px, 1.35vw, 24px) !important;' +
+          'body.hh-charselect .skymp-input-button_text {' +
+          ' font-size: clamp(15px, 1.35vw, 24px) !important;' +
           ' overflow: visible !important; text-overflow: clip !important; }' +
           // Room to stand in. The window sizes itself to its contents
           // (constructor.js measures content_main and adds 96), so the way to
