@@ -51,23 +51,57 @@ export class CharacterSelectService extends ClientListener {
 
     const slots = (content["slots"] as SlotInfo[]) ?? [];
     const maxSlots = (content["maxSlots"] as number) ?? 2;
+    // Deleting belongs to sitting down to play, not to scrambling back in
+    // after a crash. Which of those this is can only be answered here: it is a
+    // property of this copy of Skyrim, not of the server, which has no idea
+    // whether the game was just started. storage survives a reconnection and
+    // dies with the process, so a count of zero means nothing has been loaded
+    // yet, which is only true on a fresh launch.
+    const loadsSoFar = Number((this.sp.storage as Record<string, unknown>)["hhGameLoads"]) || 0;
+    const canDelete = content["canDelete"] === true && loadsSoFar === 0;
 
     this.controller.lookupListener(AuthService).setSpawnDeferred(true);
     logTrace(this, `Showing pre-spawn character screen with ${slots.length} character(s)`);
 
     this.sp.browser.setVisible(true);
     this.sp.browser.setFocused(true);
-    this.sp.browser.executeJavaScript(this.buildWidgetJs(slots, maxSlots));
+    this.sp.browser.executeJavaScript(this.buildWidgetJs(slots, maxSlots, canDelete));
   }
 
-  private buildWidgetJs(slots: SlotInfo[], maxSlots: number): string {
-    const data = JSON.stringify({ slots, maxSlots, key: BROWSER_EVENT_KEY });
+  private buildWidgetJs(slots: SlotInfo[], maxSlots: number, canDelete: boolean): string {
+    const data = JSON.stringify({ slots, maxSlots, canDelete, key: BROWSER_EVENT_KEY });
     // Built as a string for the browser context: this file runs in the game
     // process, where there is no window and no widgets API.
     return `(function (data) {
       var send = function (action) {
         return function () { window.skyrimPlatform.sendMessage(data.key, action); };
       };
+      if (!document.getElementById('hh-charselect-css')) {
+        var css = document.createElement('style');
+        css.id = 'hh-charselect-css';
+        css.textContent =
+          '.button-middle { font-size: clamp(15px, 1.35vw, 24px) !important; }' +
+          '.button-middle * { overflow: visible !important;' +
+          ' text-overflow: clip !important; white-space: normal !important; }' +
+          '.skymp-input-button_text { font-size: clamp(15px, 1.35vw, 24px) !important;' +
+          ' overflow: visible !important; text-overflow: clip !important; }' +
+          // Room to stand in. The window sizes itself to its contents
+          // (constructor.js measures content_main and adds 96), so the way to
+          // make it taller is to give the thing being measured a floor and a
+          // margin under the last button, rather than to pin a height that the
+          // confirmation rows would then overflow. Everything is border-box,
+          // so the padding is inside the minimum.
+          'body.hh-charselect .login-form--content_main {' +
+          ' min-height: 600px !important; padding-bottom: 48px !important; }' +
+          // Deleting is the secondary action on a row and should not be the
+          // same size as the character it belongs to. The box comes from the
+          // element itself, which the button honours; this is only the text.
+          'body.hh-charselect .skymp-input-button_text {' +
+          ' font-size: clamp(11px, 0.85vw, 15px) !important;' +
+          ' line-height: 1.1 !important; }';
+        document.head.appendChild(css);
+      }
+      document.body.classList.add('hh-charselect');
       window.hhWidgets = window.hhWidgets || {};
       window.hhApplyWidgets = window.hhApplyWidgets || function () {
         var list = [];
@@ -84,15 +118,21 @@ export class CharacterSelectService extends ClientListener {
             tags: ['BUTTON_STYLE_FRAME', 'ELEMENT_STYLE_MARGIN_EXTENDED'],
             click: send('play:' + slot.formId), hint: 'Enter the world as this character'
           });
+          if (!data.canDelete) {
+            return;
+          }
           if (window.hhConfirmDelete === slot.formId) {
             elements.push({ type: 'text', text: 'Delete ' + slot.name + ' forever?', tags: [] });
             elements.push({ type: 'button', text: 'Yes, delete ' + slot.name, tags: [],
+              width: 216, height: 32,
               click: send('delete:' + slot.formId), hint: 'This cannot be undone' });
             elements.push({ type: 'button', text: 'Cancel', tags: [],
+              width: 216, height: 32,
               click: function () { window.hhConfirmDelete = null; window.hhRenderPreSpawn(); },
               hint: 'Keep this character' });
           } else {
             elements.push({ type: 'button', text: 'Delete ' + slot.name, tags: [],
+              width: 216, height: 32,
               click: function () { window.hhConfirmDelete = slot.formId; window.hhRenderPreSpawn(); },
               hint: 'Permanently delete this character' });
           }
@@ -104,7 +144,7 @@ export class CharacterSelectService extends ClientListener {
             click: send('new'), hint: 'Use a free slot'
           });
         }
-        window.hhWidgets.form = { type: 'form', id: 4, caption: 'Characters', elements: elements };
+        window.hhWidgets.form = { type: 'form', id: 4, caption: 'Hearthheld', elements: elements };
         window.hhApplyWidgets();
       };
       window.hhConfirmDelete = null;
@@ -126,7 +166,8 @@ export class CharacterSelectService extends ClientListener {
     const entering = !action.startsWith("delete:");
     if (entering) {
       this.sp.browser.executeJavaScript(
-        "window.hhWidgets = window.hhWidgets || {}; window.hhWidgets.form = null;" +
+        "document.body.classList.remove('hh-charselect');" +
+          "window.hhWidgets = window.hhWidgets || {}; window.hhWidgets.form = null;" +
           "if (window.hhApplyWidgets) { window.hhApplyWidgets(); }",
       );
       this.sp.browser.setFocused(false);

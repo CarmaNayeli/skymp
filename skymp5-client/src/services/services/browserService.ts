@@ -230,7 +230,6 @@ export class BrowserService extends ClientListener {
     Menu.Container,
     Menu.Crafting,
     Menu.Gift,
-    Menu.Inventory,
     Menu.Journal,
     Menu.Lockpicking,
     Menu.Loading,
@@ -239,6 +238,25 @@ export class BrowserService extends ClientListener {
     Menu.Stats,
     Menu.Tween,
     Menu.Console,
+    // Inventory is deliberately absent too, and for a different reason.
+    //
+    // Hiding the overlay hides all of it, because it is one browser layer and
+    // not a set of windows the game can pick between. So the cost of hiding it
+    // for the inventory is the hunger dial and the skill bar going with it,
+    // and those are exactly the two things somebody has the inventory open to
+    // check against: how hungry they are while looking at what there is to
+    // eat, and how far off the next level is while looking at what they are
+    // carrying. Leaving it up is what makes the corner of the screen worth
+    // reading at the moment it is being read.
+    //
+    // Visible is not focused. The keyboard only goes to the browser when it is
+    // focused, which happens when somebody opens chat, so the inventory still
+    // receives everything typed at it.
+    //
+    // The other menus in this list stay. Each one is a screen a player is
+    // looking at instead of the world rather than alongside it, and a chat
+    // window over the map is in the way rather than useful.
+    //
     // Main is deliberately absent, unlike in typingBlockers above.
     //
     // The character screen is shown at the main menu, before anyone has
