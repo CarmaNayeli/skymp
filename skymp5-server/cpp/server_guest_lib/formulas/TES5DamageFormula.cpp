@@ -211,6 +211,25 @@ float TES5SpellDamageFormulaImpl::GetBaseSpellDamage() const
     auto magicEffect =
       espm::GetData<espm::MGEF>(effect.effectFormId, espmProvider);
 
+    // An effect that only happens for somebody with a particular perk is not
+    // part of what the spell does, and this sum had no way to know that.
+    //
+    // Every shock spell in the game carries PerkDisintegrateConcAimed, which is
+    // 200 points of health damage conditioned on the caster having Disintegrate
+    // and on the target being under 15% health. Both conditions live on the
+    // magic effect record, neither was read here, and the 200 was charged to
+    // everybody on every hit. Sparks does 8 damage and was doing 208 of it, up
+    // to ten times a second, which is what sent somebody looking at this.
+    //
+    // Skipped rather than evaluated. Perks are not part of an actor as this
+    // side knows one, so the question cannot be answered here at all, and the
+    // answer for a caster without the perk is to leave the effect out. Twelve
+    // spells in the whole load order change, all of them shock, and each one
+    // lands on the damage the spell says it does.
+    if (magicEffect.data.hasPerkCondition) {
+      continue;
+    }
+
     const bool needAddDamage =
       magicEffect.data.IsFlagSet(espm::MGEF::Flags::Hostile) ||
       magicEffect.data.IsFlagSet(espm::MGEF::Flags::Detrimental);

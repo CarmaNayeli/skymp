@@ -91,6 +91,20 @@ public:
     ActorValue primaryAV = espm::ActorValue::None;
     EffectType effectType;
 
+    // Whether any of the record's conditions asks whether somebody has a perk.
+    //
+    // Not the conditions themselves, which would mean evaluating them. Only
+    // whether one of them is a question this side cannot answer, since perks
+    // are not part of a character as the server knows one.
+    //
+    // Ninety three magic effects in Skyrim are gated this way, and one of them
+    // is the reason this exists: PerkDisintegrateConcAimed is 200 points of
+    // health damage sitting inside every shock spell in the game, conditioned
+    // on the caster having Disintegrate and the target being nearly dead. To
+    // anything that cannot read conditions it looks exactly like part of the
+    // spell.
+    bool hasPerkCondition = false;
+
     [[nodiscard]] inline bool IsFlagSet(Flags flag) const
     {
       return (static_cast<uint32_t>(flags) & static_cast<uint32_t>(flag)) ==

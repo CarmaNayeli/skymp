@@ -19,6 +19,7 @@
 #include "script_objects/EspmGameObject.h"
 #include <fmt/format.h>
 #include <fmt/ranges.h>
+#include <algorithm>
 #include <spdlog/spdlog.h>
 #include <unordered_set>
 
@@ -1238,6 +1239,65 @@ void ActionListener::OnSpellHit(MpActor* aggressor,
   float damage =
     partOne.CalculateDamage(*aggressor, *targetActorPtr, spellCastData);
   damage = damage <= 0.f ? 0.f : damage;
+
+  // A concentration spell says what it does in a second, not what it does per
+  // report, and the client sends a report for one several times a second.
+  //
+  // Flames is 8 points a second. Measured on the live server it was landing 8
+  // points every 0.18 seconds, which is 44 a second: the spell was five and a
+  // half times itself, and every concentration spell in the game with it. So
+  // what is owed for one report is the magnitude times the time since the last
+  // one, which is the only place that interval can be known.
+  //
+  // The first report of a stream has nothing to measure against and gets the
+  // shortest interval the client can produce, since it debounces magic hits to
+  // one per hundred milliseconds. The cap is there for the other end of it: a
+  // caster who stops, walks away and starts again a minute later must not be
+  // charging a minute of damage into one hit.
+  const auto spellData =
+    espm::GetData<espm::SPEL>(hitData.source, &partOne.worldState);
+  if (spellData.spellItem &&
+      spellData.spellItem->castType == espm::SPEL::CastType::Concentration) {
+    constexpr float kFirstTickSeconds = 0.1f;
+    constexpr float kMaxTickSeconds = 1.f;
+
+    // One stream per caster, target and spell, since a caster has two hands and
+    // can be pointing a different one at a different person. Mixed rather than
+    // packed, because three 32 bit numbers do not fit in one, and a collision
+    // here costs a single tick's interval rather than anything that matters.
+    uint64_t stream = static_cast<uint64_t>(aggressor->GetFormId()) << 32 |
+      static_cast<uint64_t>(targetActorPtr->GetFormId());
+    stream = stream * 1099511628211ull ^ hitData.source;
+
+    const auto now = std::chrono::steady_clock::now();
+
+    float seconds = kFirstTickSeconds;
+    const auto it = lastConcentrationHit.find(stream);
+    if (it != lastConcentrationHit.end()) {
+      seconds = std::chrono::duration<float>(now - it->second).count();
+      seconds = std::min(std::max(seconds, 0.f), kMaxTickSeconds);
+    }
+    lastConcentrationHit[stream] = now;
+
+    // Nothing else clears this, and a stream that ended leaves its last tick
+    // behind forever. Swept rather than tracked, since a stale entry costs
+    // nothing but the space and anything older than the cap can only ever
+    // produce the cap again.
+    if (lastConcentrationHit.size() > 256) {
+      for (auto i = lastConcentrationHit.begin();
+           i != lastConcentrationHit.end();) {
+        const bool stale =
+          std::chrono::duration<float>(now - i->second).count() > kMaxTickSeconds;
+        if (stale) {
+          i = lastConcentrationHit.erase(i);
+        } else {
+          ++i;
+        }
+      }
+    }
+
+    damage *= seconds;
+  }
 
   targetActorValues.healthPercentage = CalculateCurrentHealthPercentage(
     *targetActorPtr, damage, targetActorValues.healthPercentage, nullptr);

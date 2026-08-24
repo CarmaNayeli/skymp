@@ -98,6 +98,60 @@ TEST_CASE("Damage is reduced based on target's armor", "[TES5DamageFormula]")
   DoDisconnect(p, 0);
 }
 
+TEST_CASE("Spell damage ignores effects gated on a perk",
+          "[TES5DamageFormula]")
+{
+  PartOne& p = GetPartOne();
+  DoConnect(p, 0);
+  p.CreateActor(0xff000000, { 0, 0, 0 }, 0, 0x3c);
+  p.SetUserActor(0, 0xff000000);
+  auto& ac = p.worldState.GetFormAt<MpActor>(0xff000000);
+  ac.SetEquipment(Equipment());
+
+  TES5DamageFormula formula{};
+
+  // Sparks carries two hostile health effects: its own 8 points, and
+  // PerkDisintegrateConcAimed, which is 200 points that only happen for a
+  // caster who has Disintegrate against a target already nearly dead. Adding
+  // both together made the weakest spell in the game the strongest, and the
+  // client sends a hit for a concentration spell up to ten times a second.
+  SpellCastData sparks;
+  sparks.caster = 0x14;
+  sparks.target = 0x14;
+  sparks.spell = 0x0002DD2A;
+  REQUIRE(formula.CalculateDamage(ac, ac, sparks) == 8.0f);
+
+  // The rest of the shock line is the same record shape, and each one lands on
+  // what the spell itself says rather than that plus 200.
+  SpellCastData lightningBolt;
+  lightningBolt.caster = 0x14;
+  lightningBolt.target = 0x14;
+  lightningBolt.spell = 0x0002DD29;
+  REQUIRE(formula.CalculateDamage(ac, ac, lightningBolt) == 25.0f);
+
+  // And the narrowness of it. Lightning Cloak's own damage is conditioned too,
+  // on the spell rather than on anybody's perks, so a rule that skipped every
+  // conditioned effect would take a real spell down to nothing. Ninety three
+  // spells would have gone that way.
+  SpellCastData lightningCloak;
+  lightningCloak.caster = 0x14;
+  lightningCloak.target = 0x14;
+  lightningCloak.spell = 0x0002B392;
+  REQUIRE(formula.CalculateDamage(ac, ac, lightningCloak) == 8.0f);
+
+  // Fire and frost were never affected, since Intense Flames is a fear effect
+  // and Deep Freeze is paralysis. Neither is health damage, so neither was ever
+  // in the sum. Here so that a later change to the rule has to say so.
+  SpellCastData firebolt;
+  firebolt.caster = 0x14;
+  firebolt.target = 0x14;
+  firebolt.spell = 0x00012FD0;
+  REQUIRE(formula.CalculateDamage(ac, ac, firebolt) == 25.0f);
+
+  p.DestroyActor(0xff000000);
+  DoDisconnect(p, 0);
+}
+
 TEST_CASE("Formula is race-dependent for unarmed attack",
           "[TES5DamageFormula]")
 {

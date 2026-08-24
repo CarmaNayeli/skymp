@@ -9,7 +9,9 @@
 #include "SpellCastData.h"
 #include "SweetHidePlayerNamesService.h"
 #include "libespm/Loader.h"
+#include <chrono>
 #include <memory>
+#include <unordered_map>
 
 class ServerState;
 class WorldState;
@@ -105,6 +107,18 @@ private:
 
   MpActor* SendToNeighbours(uint32_t idx, const RawMessageData& rawMsgData,
                             bool reliable = false);
+
+  // When a concentration spell last landed, for each caster, target and spell.
+  //
+  // A concentration spell's magnitude is what it does in a second, and the
+  // client reports a hit for one several times a second, so the damage owed for
+  // one report is the magnitude times the time since the last one. There is
+  // nowhere else to measure that: the hit message carries no duration and the
+  // gap is whatever the caster's frame rate and the client's own hit debounce
+  // between them produce, which was five and a half hits a second when this was
+  // measured on the live server.
+  std::unordered_map<uint64_t, std::chrono::steady_clock::time_point>
+    lastConcentrationHit;
 
   PartOne& partOne;
 
