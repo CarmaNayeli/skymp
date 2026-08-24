@@ -75,27 +75,43 @@ export class WorldCleanerService extends ClientListener {
       return;
     }
 
-    const pos = ObjectReferenceEx.getPos(actor);
-    const cellOrWorld = ObjectReferenceEx.getWorldOrCell(actor);
+    // Farm animals are left where they are.
+    //
+    // This service exists to take Skyrim's own people out of a world that has
+    // none, and it took the livestock with them. Chickens were already an
+    // exception, because deleting one crashes: the note here said they fail to
+    // Disable if the game loads near them, and the handling was hedged behind a
+    // distance, a cell and a gameLoad that had found a player. A chicken that
+    // missed all three fell through to disable-then-delete and took a player
+    // down on the way into the world:
+    //
+    //   EXCEPTION_ACCESS_VIOLATION, cmp qword ptr [rcx+0x1F8] with rcx null
+    //   R15: (Character*) "Chicken" flags kDeleted, ParentCell None
+    //   RBX: (MovementControllerNPC*), R8: "IMovementMessageInterface"
+    //
+    // The movement controller was still holding the bird after delete() took
+    // the object away from under it. Not deleting them is both the fix and the
+    // better answer: a settlement wants chickens in it.
+    //
+    // The domestic goat is its own race, so the wild ones this server places for
+    // hunters are still cleaned and hunting is untouched. Dogs are left out on
+    // purpose: domestic, but not livestock, and half of them belong to quests.
+    //
+    // Protected rather than merely skipped, so the next pass stops at the check
+    // above instead of picking the same cow again every frame.
+    const livestockRaces = [
+      0x000a919d, // ChickenRace
+      0x0004e785, // CowRace
+      0x0006fc4a, // GoatDomesticsRace
+      0x000131fd, // HorseRace
+      0x000de505, // CartHorseRace
+    ];
 
-    const chickenRace = 0xa919d;
-
-    // We discovered anomaly chickens that fail to Disable if we load game near to them
-    // Refs: 106C22, 106C23
-    if (actorId < 0xff000000 && actor.getRace()?.getFormID() === chickenRace) {
-      if (this.initialPos && ObjectReferenceEx.getDistanceNoZ(pos, this.initialPos) < 4096) {
-        if (cellOrWorld === this.initialCellOrWorld) {
-          if (this.isActorInDialogue(actor)) {
-            return;
-          }
-          logTrace(this, `Deleting chicken anomaly`, actorId.toString(16));
-          actor.killSilent(null);
-          actor.blockActivation(true);
-          actor.disableNoWait(false);
-          actor.setAlpha(0, false);
-          return;
-        }
-      }
+    const race = actor.getRace()?.getFormID();
+    if (actorId < 0xff000000 && race !== undefined && livestockRaces.includes(race)) {
+      logTrace(this, `Leaving livestock alone`, actorId.toString(16));
+      this.modWcProtection(actorId, 1);
+      return;
     }
 
     actor.disable(false).then(() => {
