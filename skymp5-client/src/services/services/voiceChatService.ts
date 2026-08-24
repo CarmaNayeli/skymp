@@ -1,5 +1,5 @@
 import { ClientListener, CombinedController, Sp } from "./clientListener";
-import { BrowserMessageEvent, DxScanCode } from "skyrimPlatform";
+import { BrowserMessageEvent, DxScanCode, storage } from "skyrimPlatform";
 import { ConnectionMessage } from "../events/connectionMessage";
 import { CustomPacketMessage } from "../messages/customPacketMessage";
 import { MsgType } from "../../messages";
@@ -12,6 +12,29 @@ const SIGNAL_EVENT_KEY = "voiceSignal";
 const LOG_EVENT_KEY = "voiceLog";
 /** Who the browser currently hears talking, so nametags can be tinted. */
 const STATE_EVENT_KEY = "voiceState";
+
+/**
+ * Whether the local player has shaken hands with this actor, same source and
+ * same shape formView.ts reads for the nametag itself: the local player's own
+ * list in storage.hhMet, not something the target broadcasts, since "have I
+ * met them" is a fact about the viewer. Audio is never gated by this, only
+ * the name attached to it in the nearby-speaking list.
+ */
+function haveMetLocalPlayer(actorId: number): boolean {
+  try {
+    const known = storage["hhMet"];
+    if (typeof known !== "object" || known === null) {
+      return false;
+    }
+    const met = known as { all?: boolean; ids?: number[] };
+    if (met.all === true) {
+      return true;
+    }
+    return Array.isArray(met.ids) && met.ids.includes(actorId);
+  } catch (e) {
+    return false;
+  }
+}
 
 /**
  * Push to talk. Unbound in Skyrim's default controls, and deliberately not a
@@ -288,8 +311,9 @@ export class VoiceChatService extends ClientListener {
         actorId,
         distance: Math.round(distance),
         // The browser has no idea who anyone is, so the name travels with the
-        // proximity update rather than being looked up over there.
-        name: form.appearance?.name ?? "",
+        // proximity update rather than being looked up over there. Withheld
+        // the same way the nametag itself is, for anyone not yet introduced.
+        name: haveMetLocalPlayer(actorId) ? (form.appearance?.name ?? "") : "Unknown",
       });
     }
 

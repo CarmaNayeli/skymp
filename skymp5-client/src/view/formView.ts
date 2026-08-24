@@ -578,7 +578,8 @@ export class FormView {
         const textYPos = Math.round((1 - headScreenPos[1]) * resolution.height);
 
         if (!this.textNameId && headScreenPos[2] > 0) {
-          this.textNameId = createText(textXPos, textYPos, refr.getDisplayName(), [1, 1, 1, 0.8]);
+          const shownName = this.haveMetLocalPlayer() ? refr.getDisplayName() : "Unknown";
+          this.textNameId = createText(textXPos, textYPos, shownName, [1, 1, 1, 0.8]);
           setTextSize(this.textNameId, 0.5);
           this.createSerialTag(textXPos, textYPos);
           this.applyNicknameVoiceColor();
@@ -677,6 +678,29 @@ export class FormView {
       return typeof value === "string" ? value : "";
     } catch (e) {
       return "";
+    }
+  }
+
+  /**
+   * Whether the local player has shaken hands with whoever this nametag
+   * belongs to. Unlike hhSerials, this is not keyed per remote actor: it is
+   * the local player's own list, since "have I met them" is a fact about the
+   * viewer, not something a target broadcasts about itself. A game master's
+   * own list carries an "all" sentinel instead of a real array.
+   */
+  private haveMetLocalPlayer(): boolean {
+    try {
+      const known = storage["hhMet"];
+      if (typeof known !== "object" || known === null) {
+        return false;
+      }
+      const met = known as { all?: boolean; ids?: number[] };
+      if (met.all === true) {
+        return true;
+      }
+      return Array.isArray(met.ids) && met.ids.includes(this.refrId as number);
+    } catch (e) {
+      return false;
     }
   }
 
