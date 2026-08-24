@@ -28,6 +28,34 @@ export class MagicSyncService extends ClientListener {
     }
 
     private onUpdate() {
+        // Whether the game itself still thinks this hand is channelling, polled
+        // every tick rather than inferred from an animation event.
+        //
+        // The only interrupt trigger used to be mlh/mrh_equipped_event, which is
+        // the re-equip animation: it fires on sheathing or switching gear, not on
+        // simply letting go of a concentration spell's trigger. So releasing
+        // Flames or Sparks stopped the beam locally and told nobody, and every
+        // other client kept its own copy of the caster looping the channel
+        // animation and applying the effect, since nothing ever said to stop.
+        // That is the whole shape of "it stops for you but not for them, and it
+        // still hurts": each client is right about what it was told and wrong
+        // about what actually happened.
+        //
+        // These three animation variables are read the same way already, a few
+        // lines below in sendInputsService, to decide whether an actor value
+        // update should wait out a cast rather than fight it. Reusing a signal
+        // already proven reliable there is safer than trusting a fresh guess.
+        const player = this.sp.Game.getPlayer();
+        const isCastingNow = !!player && (
+            player.getAnimationVariableBool("IsCastingRight") ||
+            player.getAnimationVariableBool("IsCastingLeft") ||
+            player.getAnimationVariableBool("IsCastingDual")
+        );
+        if (this.wasCastingLastUpdate && !isCastingNow) {
+            this.sendInterruptForLastCast();
+        }
+        this.wasCastingLastUpdate = isCastingNow;
+
         if (this.isAnyMagicStuffEquiped() === false) {
             return;
         }
@@ -75,20 +103,29 @@ export class MagicSyncService extends ClientListener {
         }
 
         this.controller.once('update', () => {
-            if (!this.lastSpellCastEventMsg || this.lastSpellCastEventMsg.interruptCast) {
-                return;
-            }
-
-            let msg: SpellCastMsgData = this.lastSpellCastEventMsg;
-            msg.interruptCast = true;
-            msg.actorAnimationVariables = this.getAnimationVariablesFromActorConverted(remoteIdToLocalId(this.lastSpellCastEventMsg.caster));
-
-            this.controller.emitter.emit("sendMessage", {
-                message: { t: MsgType.SpellCast, data: msg },
-                reliability: "reliable"
-            });
+            this.sendInterruptForLastCast();
         });
 
+    }
+
+    // The one place an interrupt actually gets sent, so the two triggers above
+    // cannot drift into sending it two different ways. Left as two triggers on
+    // purpose rather than merged into one: the animation event still catches an
+    // instant cast interrupted by something else, like a stagger, and the polled
+    // variables catch the ordinary case of just letting go.
+    private sendInterruptForLastCast() {
+        if (!this.lastSpellCastEventMsg || this.lastSpellCastEventMsg.interruptCast) {
+            return;
+        }
+
+        let msg: SpellCastMsgData = this.lastSpellCastEventMsg;
+        msg.interruptCast = true;
+        msg.actorAnimationVariables = this.getAnimationVariablesFromActorConverted(remoteIdToLocalId(this.lastSpellCastEventMsg.caster));
+
+        this.controller.emitter.emit("sendMessage", {
+            message: { t: MsgType.SpellCast, data: msg },
+            reliability: "reliable"
+        });
     }
 
     private getSpellCastEventData(e: SpellCastEvent, isInterruptCast: boolean): SpellCastMsgData {
@@ -178,4 +215,5 @@ export class MagicSyncService extends ClientListener {
     private sendUpdateAnimationVariablesRateMs = 500;
     private lastSpellCastEventMsg: SpellCastMsgData | null = null;
     private lastSendUpdateAnimationVariables: number = 0;
+    private wasCastingLastUpdate = false;
 }
