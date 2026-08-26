@@ -283,6 +283,56 @@ ScampServer::ScampServer(const Napi::CallbackInfo& info)
       spdlog::info(msg.str());
     }
 
+    // Races the server refuses to attach, on top of the ones it always
+    // refuses. A placed actor whose race is banned is skipped in
+    // AttachEspmRecord, so it never becomes a form at all: nothing to sync,
+    // nothing to disable, and nothing left for a client to see. The race is
+    // read through the template chain first, so levelled variants resolve to
+    // the race they would actually spawn as.
+    //
+    // Additive on purpose. The built in list bans the playable races and
+    // mannequins because attaching one breaks in ways that have nothing to do
+    // with server policy, so a config file gets to add to that list and never
+    // to replace it.
+    if (serverSettings.find("additionalBannedRaces") != serverSettings.end()) {
+      if (serverSettings.at("additionalBannedRaces").is_array()) {
+        auto& banned = partOne->worldState.bannedEspmCharacterRaceIds;
+        size_t added = 0;
+        for (const auto& entry : serverSettings.at("additionalBannedRaces")) {
+          uint32_t raceId = 0;
+          if (entry.is_number_unsigned()) {
+            raceId = entry.get<uint32_t>();
+          } else if (entry.is_string()) {
+            // Form ids are written in hex everywhere else a person meets them,
+            // and JSON has no hex literal, so "0x000131f8" has to be read as
+            // a string or every entry would have to be converted by hand.
+            try {
+              raceId = static_cast<uint32_t>(
+                std::stoul(entry.get<std::string>(), nullptr, 16));
+            } catch (const std::exception&) {
+              spdlog::error("additionalBannedRaces: {} is not a form id",
+                            entry.dump());
+              continue;
+            }
+          } else {
+            spdlog::error("additionalBannedRaces: {} is neither a number nor "
+                          "a hex string",
+                          entry.dump());
+            continue;
+          }
+          if (std::find(banned.begin(), banned.end(), raceId) == banned.end()) {
+            banned.push_back(raceId);
+            ++added;
+          }
+        }
+        spdlog::info("additionalBannedRaces: {} race(s) added, {} banned in "
+                     "total",
+                     added, banned.size());
+      } else {
+        spdlog::error("additionalBannedRaces should be an array of form ids");
+      }
+    }
+
     if (serverSettings.find("enableConsoleCommandsForAll") !=
         serverSettings.end()) {
       if (serverSettings.at("enableConsoleCommandsForAll").is_boolean()) {
