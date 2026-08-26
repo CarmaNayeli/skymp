@@ -12,6 +12,7 @@ import { getMovement } from "../sync/movementGet";
 import { lastTryHost, tryHost } from "./hostAttempts";
 import { ModelApplyUtils } from "./modelApplyUtils";
 import { localIdToRemoteId } from "./worldViewMisc";
+import { logError } from "../logging";
 import { SpApiInteractor } from "../services/spApiInteractor";
 import { WorldCleanerService } from "../services/services/worldCleanerService";
 import { GamemodeUpdateService } from "../services/services/gamemodeUpdateService";
@@ -163,6 +164,16 @@ export class FormView {
       if (respawnRequired) {
         this.destroy();
 
+        // Everything from here to the end of the block is a native call, and
+        // every one of them used to be unguarded. A throw anywhere in it left
+        // update() before this.refrId was assigned, so the next frame found
+        // refrId still 0, decided a respawn was required again, and walked
+        // into the same throw. Once a frame, for the rest of the session.
+        //
+        // What that looked like: hundreds of bare "Bad call result 4" from the
+        // platform, which logs every throw it sees whether or not anything
+        // catches it, and not one of them saying which call or which object.
+        try {
         const player = Game.getPlayer() as Actor;
 
         const spawnMethodOriginal = {
@@ -286,8 +297,31 @@ export class FormView {
           refr?.setDisplayName("" + model.appearance.name, true);
         }
         Actor.from(refr)?.setActorValue("attackDamageMult", 0);
+        } catch (e) {
+          logError("FormView", "spawn failed for remote", this.remoteRefrId?.toString(16),
+            "base", model.baseId?.toString(16), ":", (e as Error).message);
+          return;
+        }
       }
-      this.refrId = (refr as ObjectReference).getFormID();
+      // A spawn that produced nothing is a frame to skip, not a throw.
+      //
+      // This was `(refr as ObjectReference).getFormID()`, a non-null assertion
+      // on a variable that is genuinely nullable: placeAtMe can answer with
+      // nothing, and the spawn is skipped outright when the model has no
+      // movement, which leaves refr exactly as null as it started.
+      //
+      // The cost was not only the noise. refrId is what getLocalRefrId()
+      // reports, so leaving it at 0 meant remoteIdToLocalId answered 0 and
+      // every server-issued call against the object died with "Unable to find
+      // form with id 0". A placed object never moved and never appeared, and
+      // the two looked like separate bugs.
+      if (!refr) {
+        logError("FormView", "spawn produced no reference for remote",
+          this.remoteRefrId?.toString(16), "base", model.baseId?.toString(16),
+          "movement", model.movement ? "yes" : "no");
+        return;
+      }
+      this.refrId = refr.getFormID();
     }
 
     if (!this.ready) {
