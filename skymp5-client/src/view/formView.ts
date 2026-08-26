@@ -298,8 +298,7 @@ export class FormView {
         }
         Actor.from(refr)?.setActorValue("attackDamageMult", 0);
         } catch (e) {
-          logError("FormView", "spawn failed for remote", this.remoteRefrId?.toString(16),
-            "base", model.baseId?.toString(16), ":", (e as Error).message);
+          this.complain("spawn threw: " + (e as Error).message, model);
           return;
         }
       }
@@ -316,9 +315,10 @@ export class FormView {
       // form with id 0". A placed object never moved and never appeared, and
       // the two looked like separate bugs.
       if (!refr) {
-        logError("FormView", "spawn produced no reference for remote",
-          this.remoteRefrId?.toString(16), "base", model.baseId?.toString(16),
-          "movement", model.movement ? "yes" : "no");
+        this.complain(
+          "spawn produced no reference, movement " + (model.movement ? "yes" : "no"),
+          model,
+        );
         return;
       }
       this.refrId = refr.getFormID();
@@ -828,6 +828,25 @@ export class FormView {
     return this.remoteRefrId as number;
   }
 
+  /**
+   * Says a spawn failed, once per kind of failure rather than once a frame.
+   *
+   * A failed spawn is retried on the next frame and every frame after, because
+   * refrId stays 0 and that is what decides a respawn is required. Logging from
+   * inside that is logging sixty times a second, which is the thing this was
+   * meant to make readable rather than a louder version of it.
+   */
+  private complain(what: string, model: FormModel): void {
+    const text = what + " (remote " + this.remoteRefrId?.toString(16) +
+      ", base " + model.baseId?.toString(16) + ")";
+    if (text === this.lastComplaint) {
+      return;
+    }
+    this.lastComplaint = text;
+    logError("FormView", text);
+  }
+
+  private lastComplaint = "";
   private refrId = 0;
   private ready = false;
   private animState = this.getDefaultAnimState();
