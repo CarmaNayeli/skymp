@@ -163,6 +163,7 @@ export class FormView {
 
       if (respawnRequired) {
         this.destroy();
+        this.spawnAttempts++;
 
         // Everything from here to the end of the block is a native call, and
         // every one of them used to be unguarded. A throw anywhere in it left
@@ -298,6 +299,21 @@ export class FormView {
         }
         Actor.from(refr)?.setActorValue("attackDamageMult", 0);
         } catch (e) {
+          // Take the half-made reference with us.
+          //
+          // placeAtMe may well have succeeded and something after it thrown,
+          // and returning here leaves a reference nothing owns: refrId is
+          // still 0, so the next frame's destroy() sees 0, decides it is not
+          // a runtime form and leaves it alone. One orphan a frame for as
+          // long as the failure lasts, which is what "placing works but the
+          // game gets slower" is made of.
+          if (refr) {
+            try {
+              refr.delete();
+            } catch (e2) {
+              // Nothing more to be done about it than has been done.
+            }
+          }
           this.complain("spawn threw: " + (e as Error).message, model);
           return;
         }
@@ -322,6 +338,17 @@ export class FormView {
         return;
       }
       this.refrId = refr.getFormID();
+      // How many goes it took, when it took more than one.
+      //
+      // A spawn that fails is retried on the next frame, so a fault that
+      // clears by itself is invisible except as the object arriving late.
+      // Saying how late turns "it lags" into a number, and tells us whether
+      // the failure is one frame of the game not being ready or hundreds.
+      if (this.spawnAttempts > 1) {
+        logError("FormView", "spawn took", this.spawnAttempts, "attempts (remote",
+          this.remoteRefrId?.toString(16) + ", base", model.baseId?.toString(16) + ")");
+      }
+      this.spawnAttempts = 0;
     }
 
     if (!this.ready) {
@@ -847,6 +874,7 @@ export class FormView {
   }
 
   private lastComplaint = "";
+  private spawnAttempts = 0;
   private refrId = 0;
   private ready = false;
   private animState = this.getDefaultAnimState();
