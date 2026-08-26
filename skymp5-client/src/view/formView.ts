@@ -639,7 +639,13 @@ export class FormView {
         const textYPos = Math.round((1 - headScreenPos[1]) * resolution.height);
 
         if (!this.textNameId && headScreenPos[2] > 0) {
-          const shownName = this.haveMetLocalPlayer() ? refr.getDisplayName() : "Unknown";
+          // Remembered, because the tag below is created once and then only
+          // ever moved. Whether the local player has met this person is not a
+          // fixed fact: it changes the moment the two of them introduce
+          // themselves, and the tag has to notice. See the check in the else
+          // branch.
+          this.nicknameShowedMet = this.haveMetLocalPlayer();
+          const shownName = this.nicknameShowedMet ? refr.getDisplayName() : "Unknown";
           this.textNameId = createText(textXPos, textYPos, shownName, [1, 1, 1, 0.8]);
           setTextSize(this.textNameId, 0.5);
           this.createSerialTag(textXPos, textYPos);
@@ -654,6 +660,25 @@ export class FormView {
             this.removeNickname();
           }
           if (this.textNameId) {
+            // Introductions happen while the tag is already on screen.
+            //
+            // The tag is created once and from then on only moved, so the
+            // name it was born with used to be the name it kept: two people
+            // could shake hands, the server could tell both clients about it,
+            // both could agree it had happened in chat, and each would go on
+            // reading "Unknown" over the other's head until one of them
+            // walked far enough away for the tag to be destroyed and built
+            // again. Which reads as the introduction not having worked.
+            //
+            // Rewritten in place rather than destroyed and recreated: the tag
+            // carries a voice colour and a serial line underneath it, and
+            // tearing all that down every time somebody's met list changes
+            // would flicker for no reason.
+            const metNow = this.haveMetLocalPlayer();
+            if (metNow !== this.nicknameShowedMet) {
+              this.nicknameShowedMet = metNow;
+              setTextString(this.textNameId, metNow ? refr.getDisplayName() : "Unknown");
+            }
             setTextPos(this.textNameId, textXPos, textYPos);
             if (this.textSerialId) {
               setTextPos(this.textSerialId, textXPos, textYPos + FormView.serialLineOffset);
@@ -691,6 +716,13 @@ export class FormView {
   }
 
   private nicknameShowsTalking = false;
+
+  /**
+   * Whether the tag currently on screen was drawn as somebody we have met.
+   * Compared against the live answer every frame the tag is moved, so an
+   * introduction changes the name without waiting for the tag to be rebuilt.
+   */
+  private nicknameShowedMet = false;
   private textSerialId?: number;
 
   /**
@@ -778,6 +810,7 @@ export class FormView {
     // A recreated nametag starts at the default colour, so the remembered
     // state has to go with the old one or the tint would not be reapplied.
     this.nicknameShowsTalking = false;
+    this.nicknameShowedMet = false;
     if (this.textSerialId) {
       destroyText(this.textSerialId);
       this.textSerialId = undefined;
