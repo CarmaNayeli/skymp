@@ -5,9 +5,68 @@
 #include "archives/JsonInputArchive.h"
 #include <fmt/format.h>
 #include <fmt/ranges.h>
+#include <cmath>
 #include <functional>
 #include <limits>
+// Not json_fwd, which is all the header takes: parsing a property's dump below
+// needs the definition.
+#include <nlohmann/json.hpp>
 #include <sstream>
+
+namespace {
+
+// A per actor override of every band below, read off whoever is attacking.
+//
+// The bands describe a place: how dangerous the world is where the person
+// being hit is standing. That is the right default and exactly the wrong
+// thing for a creature somebody has put down on purpose, which arrives
+// weakened or strengthened by wherever it happened to be dropped rather than
+// by any decision. A game master testing whether a bear is survivable cannot
+// test it at all if the bear is quietly at 45% for standing near a town.
+//
+// So one actor may carry a number that REPLACES the bands rather than
+// multiplying with them. That is the whole reason this is not simply another
+// entry in the config: an override of 1 has to mean full strength, which is
+// what somebody typing 1 expects, where multiplying would have handed them
+// whatever the band was and called it full.
+//
+// Left off everybody by default, and the cost of that is one string
+// comparison per hit.
+const char* kDamageMultOverrideProperty = "private.damageMultOverride";
+
+std::optional<float> ReadDamageMultOverride(const MpActor& aggressor)
+{
+  const std::string& dump =
+    aggressor.GetDynamicFields().GetValueDump(kDamageMultOverrideProperty);
+
+  // What GetValueDump answers for a property nobody has set, which is almost
+  // every actor on almost every hit. Checked first and by string compare, so
+  // the common case never reaches a JSON parser.
+  if (dump.empty() || dump == "null") {
+    return std::nullopt;
+  }
+
+  try {
+    auto parsed = nlohmann::json::parse(dump);
+    if (parsed.is_number()) {
+      float value = parsed.get<float>();
+      // Negative would heal on hit and a non-finite one would poison every
+      // number downstream of it. Both fall back to the bands rather than
+      // being clamped, because a value this wrong is a mistake to be found
+      // rather than a preference to be honoured.
+      if (std::isfinite(value) && value >= 0.f) {
+        return value;
+      }
+    }
+  } catch (const std::exception&) {
+    // Left to the bands. A property that cannot be read is not a reason to
+    // stop working out damage.
+  }
+
+  return std::nullopt;
+}
+
+}
 
 DamageMultConditionalFormula::DamageMultConditionalFormula(
   std::unique_ptr<IDamageFormula> baseFormula_, const nlohmann::json& config,
@@ -34,6 +93,12 @@ float DamageMultConditionalFormula::CalculateDamage(
   const HitData& hitData) const
 {
   float baseDamage = baseFormula->CalculateDamage(aggressor, target, hitData);
+
+  // Ahead of the settings check as well as the bands, so an override still
+  // means something on a server that configured no bands at all.
+  if (auto overridden = ReadDamageMultOverride(aggressor)) {
+    return baseDamage * *overridden;
+  }
 
   if (!settings) {
     return baseDamage;
@@ -83,6 +148,12 @@ float DamageMultConditionalFormula::CalculateDamage(
 {
   float baseDamage =
     baseFormula->CalculateDamage(aggressor, target, spellCastData);
+
+  // The same override covers spells, so a spawned mage is at the strength it
+  // was asked for whichever hand it uses.
+  if (auto overridden = ReadDamageMultOverride(aggressor)) {
+    return baseDamage * *overridden;
+  }
 
   if (!settings) {
     return baseDamage;
