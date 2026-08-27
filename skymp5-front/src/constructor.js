@@ -115,7 +115,25 @@ const Constructor = props => {
         if (newline) bodyLines.push([obj]);
         else bodyLines[bodyLines.length - 1].push(obj);
       }
-      const [hints, setHints] = useState(hintsArr);
+      // Which hints are showing, by the index of the element each belongs to.
+      //
+      // This used to hold the whole hint array, seeded from hintsArr through
+      // useState. useState only seeds on the first render, and a form keeps its
+      // React instance across a redraw whenever its key comes out the same, so
+      // a redrawn form read its hints out of the array the first draw built.
+      // Hovering anything then showed the old page's words, and if the new page
+      // had more hinted elements than the old one the read ran off the end and
+      // threw on undefined.text.
+      //
+      // That throw happens inside widgets.set, which sets every widget at once,
+      // so one hint past the end of a stale array takes the entire interface off
+      // the screen: chat, menus and all. Somebody searching a build catalogue
+      // lost the lot to it.
+      //
+      // The words and the side now come from hintsArr, which is rebuilt on
+      // every render and is therefore always the right length. Only what the
+      // mouse is doing needs to survive a render, and that is all state holds.
+      const [openHints, setOpenHints] = useState({});
       let hintIndex = 0;
       bodyLines.forEach((line, lineIndex) => {
         const arr = [];
@@ -152,9 +170,9 @@ const Constructor = props => {
               (hasHint)
                 ? (<div key={key}>
                   <SkyrimHint
-                    text={hints[hintIndex].text}
-                    isOpened={hints[hintIndex].isOpened}
-                    left={hints[hintIndex].direction}
+                    text={hintsArr[hintIndex].text}
+                    isOpened={!!openHints[obj.index]}
+                    left={hintsArr[hintIndex].direction}
                   />
                   <div
                     onMouseOver={() => setHintState(obj.index, true)}
@@ -177,11 +195,11 @@ const Constructor = props => {
       });
 
       const setHintState = (index, state) => {
-        const newArr = [...hints];
-        hints.forEach((hint, ind) => {
-          if (hint.id === index) { newArr[ind].isOpened = state; }
+        setOpenHints((prev) => {
+          const next = { ...prev };
+          next[index] = state;
+          return next;
         });
-        setHints(newArr);
       };
 
       return (
