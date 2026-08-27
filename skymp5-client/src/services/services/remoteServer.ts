@@ -25,7 +25,7 @@ import { applyAppearanceToPlayer } from '../../sync/appearance';
 import { applyEquipment, isBadMenuShown } from '../../sync/equipment';
 import { Inventory, applyInventory } from '../../sync/inventory';
 import { Movement } from '../../sync/movement';
-import { learnSpells, removeAllSpells } from '../../sync/spell';
+import { syncSpells } from '../../sync/spell';
 import { ModelApplyUtils } from '../../view/modelApplyUtils';
 import { FormModel, WorldModel } from '../../view/model';
 import { LoadGameService } from './loadGameService';
@@ -490,8 +490,7 @@ export class RemoteServer extends ClientListener {
           const player = Game.getPlayer();
 
           if (player) {
-            removeAllSpells(player);
-            learnSpells(player, learnedSpells);
+            syncSpells(player, learnedSpells);
             logTrace(this,
               `player learnedSpells:`, JSON.stringify(learnedSpells),
             );
