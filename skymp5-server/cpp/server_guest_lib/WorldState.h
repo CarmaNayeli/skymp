@@ -253,6 +253,22 @@ public:
 
   bool disableVanillaScriptsInExterior = true;
 
+  // Where the world is meant to be safest, for the SkympGetDistanceFromHome
+  // condition function.
+  //
+  // A server whose players all start in one place wants the ground around it
+  // to be gentler than the far corners of the map, and nothing else here can
+  // express that: damage multipliers are configured by condition, and every
+  // condition that existed asked about the actor rather than about where the
+  // actor was standing.
+  //
+  // Held here rather than read from settings at the point of use because a
+  // condition function is called on every hit and has no route to the config.
+  // Disabled unless a server sets it, so the default behaviour is unchanged.
+  bool difficultyHomeSet = false;
+  uint32_t difficultyHomeWorldOrCellId = 0;
+  NiPoint3 difficultyHomePos;
+
   std::vector<uint32_t> bannedEspmCharacterRaceIds = {
     0x000e7713, 0x00012e82, 0x001052a3, 0x00088884, 0x0008883a, 0x00088846,
     0x00108272, 0x000a82b9, 0x0008883c, 0x00088794, 0x00088845, 0x0008883d,

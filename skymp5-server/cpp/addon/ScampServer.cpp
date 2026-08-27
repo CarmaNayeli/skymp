@@ -333,6 +333,63 @@ ScampServer::ScampServer(const Napi::CallbackInfo& info)
       }
     }
 
+    // Where the world is meant to be safest, read once and kept on the world
+    // state because the condition function that uses it runs on every hit and
+    // has no route back to this config.
+    //
+    //   "difficultyHome": {
+    //     "worldOrCell": "0x0000003c",
+    //     "pos": [95682.45, -15213.15, -10800.29]
+    //   }
+    //
+    // Left unset by default, and unset means the SkympGetDistanceFromHome
+    // condition answers "far away" everywhere, so a server that does not
+    // configure this behaves exactly as it did before.
+    if (serverSettings.find("difficultyHome") != serverSettings.end()) {
+      auto& home = serverSettings.at("difficultyHome");
+      if (home.is_object() && home.contains("pos") && home.contains("worldOrCell") &&
+          home.at("pos").is_array() && home.at("pos").size() == 3) {
+        uint32_t worldOrCellId = 0;
+        bool ok = true;
+        auto& worldOrCell = home.at("worldOrCell");
+        if (worldOrCell.is_number_unsigned()) {
+          worldOrCellId = worldOrCell.get<uint32_t>();
+        } else if (worldOrCell.is_string()) {
+          // Hex string for the same reason additionalBannedRaces takes one:
+          // form ids are written in hex everywhere a person meets them and
+          // JSON has no hex literal.
+          try {
+            worldOrCellId = static_cast<uint32_t>(
+              std::stoul(worldOrCell.get<std::string>(), nullptr, 16));
+          } catch (const std::exception&) {
+            spdlog::error("difficultyHome: worldOrCell {} is not a form id",
+                          worldOrCell.dump());
+            ok = false;
+          }
+        } else {
+          spdlog::error("difficultyHome: worldOrCell is neither a number nor "
+                        "a hex string");
+          ok = false;
+        }
+        if (ok) {
+          auto& pos = home.at("pos");
+          partOne->worldState.difficultyHomePos =
+            NiPoint3(pos[0].get<float>(), pos[1].get<float>(),
+                     pos[2].get<float>());
+          partOne->worldState.difficultyHomeWorldOrCellId = worldOrCellId;
+          partOne->worldState.difficultyHomeSet = true;
+          spdlog::info(
+            "difficultyHome: {:#x} at [{}, {}, {}]", worldOrCellId,
+            partOne->worldState.difficultyHomePos.x,
+            partOne->worldState.difficultyHomePos.y,
+            partOne->worldState.difficultyHomePos.z);
+        }
+      } else {
+        spdlog::error("difficultyHome should be an object with worldOrCell "
+                      "and a pos of three numbers");
+      }
+    }
+
     if (serverSettings.find("enableConsoleCommandsForAll") !=
         serverSettings.end()) {
       if (serverSettings.at("enableConsoleCommandsForAll").is_boolean()) {

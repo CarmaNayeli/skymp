@@ -16,6 +16,7 @@
 #include "WornHasKeyword.h"
 
 #include "SkympGetDamageSourceHasKeyword.h"
+#include "SkympGetDistanceFromHome.h"
 #include "SkympGetIsDamageSource.h"
 #include "SkympWornHasKeywordCount.h"
 
@@ -58,6 +59,8 @@ ConditionFunctionMap ConditionFunctionFactory::CreateConditionFunctions()
     std::make_shared<ConditionFunctions::SkympGetIsDamageSource>());
   res.RegisterConditionFunction(
     std::make_shared<ConditionFunctions::SkympWornHasKeywordCount>());
+  res.RegisterConditionFunction(
+    std::make_shared<ConditionFunctions::SkympGetDistanceFromHome>());
 
   return res;
 }
