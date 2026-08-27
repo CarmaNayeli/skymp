@@ -7,6 +7,11 @@
 #include "savefile/SFSeekerOfDifferences.h"
 #include "savefile/SFWriter.h"
 
+// For the co-save writer below. Not pulled in by the PCH.
+#include <cstdint>
+#include <fstream>
+#include <vector>
+
 namespace fs = std::filesystem;
 
 CMRC_DECLARE(skyrim_plugin_resources);
@@ -112,6 +117,11 @@ void LoadGame::Run(std::shared_ptr<SaveFile_::SaveFile> save,
     throw std::runtime_error("CreateSaveFile failed");
   }
 
+  // A save the game will load needs the co-save that goes beside it, or the
+  // SKSE plugins loaded alongside us are left in the state they were reverted
+  // into. See WriteCoSave.
+  WriteCoSave(name);
+
   TESModPlatform::BlockMoveRefrToPosition(true);
   static LoadGameEventSink g_sink;
 
@@ -127,6 +137,109 @@ fs::path LoadGame::GetSaveFullPath(const std::string& name)
   return GetPathToMyDocuments() +
     L"\\My Games\\Skyrim Special Edition\\Saves\\" + StringToWstring(name) +
     L".ess";
+}
+
+fs::path LoadGame::GetCoSaveFullPath(const std::string& name)
+{
+  return GetPathToMyDocuments() +
+    L"\\My Games\\Skyrim Special Edition\\Saves\\" + StringToWstring(name) +
+    L".skse";
+}
+
+/**
+ * Writes the .skse co-save beside the .ess this just built.
+ *
+ * Every load here is a synthetic save: a template is patched with somebody's
+ * appearance and position, written out, and handed to the game. Only the .ess
+ * was ever written, and SKSE keeps its plugins' per-save data in a companion
+ * .skse. With no such file there is nothing for SKSE to read, so it never
+ * dispatches its load callback, and every SKSE plugin that was reverted on the
+ * way into this load stays reverted for the rest of the session.
+ *
+ * What that cost: RaceMenu's character creation with none of RaceMenu in it.
+ * Sculpting, warpaint, tints, body paint and the light toggle all dead, while
+ * everything anybody thought to check said the mod was fine. The plugin
+ * loaded, skee64.dll loaded, and NiOverride answered when called, because
+ * those are global Papyrus natives and a revert does not touch them. Only the
+ * state skee64 keeps per save was gone, and that is most of the mod.
+ *
+ * skee64's own log is where the two halves show:
+ *
+ *   working:  NetImmerse Override Enabled / Saving... / Reverting... /
+ *             Loading... / SKEE64Serialization_Load - Loaded
+ *   here:     NetImmerse Override Enabled / Reverting...  and nothing more
+ *
+ * A fresh start is fine because it never reverts in the first place. Only a
+ * load does that, and only a load can undo it.
+ *
+ * The block written is deliberately empty rather than reconstructed. It says
+ * "skee64, here is your data, there is none of it", which is all that is
+ * needed to bring it back out of the revert; the server pushes the character's
+ * real morphs and overlays afterwards. The bytes are the ones a real co-save
+ * carries for an untouched character, read out of one rather than guessed:
+ * a string table of length zero and an item table of length zero.
+ */
+void LoadGame::WriteCoSave(const std::string& name)
+{
+  // SKSE's own header. formatVersion is 1; the two version words are what
+  // this build of SKSE and this runtime report, and are informational to the
+  // reader rather than a gate, so a mismatch degrades to a warning.
+  constexpr uint32_t kFormatVersion = 1;
+  constexpr uint32_t kSkseVersion = 0x02020060;  // 2.2.6
+  constexpr uint32_t kRuntimeVersion = 0x01064920; // 1.6.1170
+
+  // Signatures and chunk types are four characters written as a little endian
+  // uint32, so the value spells the name backwards from how the bytes land.
+  // These were read out of a real co-save rather than worked out, because
+  // working them out got two of the three the wrong way round.
+  constexpr uint32_t kSigSkee = 0x534b4545;         // "EEKS" on disk, skee64
+  constexpr uint32_t kChunkStringTable = 0x53545442; // "BTTS" on disk
+  constexpr uint32_t kChunkItemData = 0x49544545;    // "EETI" on disk
+
+  std::vector<uint8_t> out;
+  auto put32 = [&out](uint32_t v) {
+    out.push_back(static_cast<uint8_t>(v & 0xff));
+    out.push_back(static_cast<uint8_t>((v >> 8) & 0xff));
+    out.push_back(static_cast<uint8_t>((v >> 16) & 0xff));
+    out.push_back(static_cast<uint8_t>((v >> 24) & 0xff));
+  };
+
+  out.push_back('S');
+  out.push_back('K');
+  out.push_back('S');
+  out.push_back('E');
+  put32(kFormatVersion);
+  put32(kSkseVersion);
+  put32(kRuntimeVersion);
+  put32(1); // one plugin: skee64
+
+  // Chunk headers are twelve bytes each, so two empty-ish chunks come to
+  // 12 + 4 + 12 + 8.
+  constexpr uint32_t kSkeeBlockLength = 36;
+  put32(kSigSkee);
+  put32(2); // chunk count
+  put32(kSkeeBlockLength);
+
+  put32(kChunkStringTable);
+  put32(3); // version, as written by skee64 for this chunk
+  put32(4);
+  put32(0); // no strings
+
+  put32(kChunkItemData);
+  put32(2); // version, as written by skee64 for this chunk
+  put32(8);
+  put32(1); // the table's own version
+  put32(0); // no items
+
+  try {
+    std::ofstream f(GetCoSaveFullPath(name), std::ios::binary);
+    f.write(reinterpret_cast<const char*>(out.data()), out.size());
+  } catch (const std::exception& e) {
+    // Not fatal, and not silent. Without the co-save the load still happens
+    // and the session is playable, it is only the SKSE plugins that stay
+    // reverted, which is the state this exists to leave behind.
+    logger::error("failed to write co-save for {}: {}", name, e.what());
+  }
 }
 
 std::wstring LoadGame::GetPathToMyDocuments()

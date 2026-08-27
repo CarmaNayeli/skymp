@@ -54,6 +54,15 @@ private:
 
   static std::filesystem::path GetSaveFullPath(const std::string& name);
 
+  static std::filesystem::path GetCoSaveFullPath(const std::string& name);
+
+  // Writes the .skse co-save that belongs beside the .ess we just made.
+  //
+  // Without one, SKSE has nothing to read on load and never dispatches its
+  // load callback, so every SKSE plugin that had been reverted on the way in
+  // stays reverted. See the definition for what that cost.
+  static void WriteCoSave(const std::string& name);
+
   static SaveFile_::PlayerLocation* FindSectionWithPlayerLocation(
     std::shared_ptr<SaveFile_::SaveFile> save);
 
