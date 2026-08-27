@@ -82,6 +82,14 @@ struct MpActor::Impl
 
 namespace {
 
+// Set on an actor that should stay dead. See RespawnWithDelay.
+//
+// Private, so it never leaves the server, and named for what it does rather
+// than for any one gamemode: whether a given creature is scenery to be kept
+// standing or a one off to be fought once is a question only the gamemode can
+// answer.
+const char* kNoRespawnProperty = "private.noRespawn";
+
 void RestoreActorValuePatched(MpActor* actor, espm::ActorValue actorValue,
                               float value)
 {
@@ -1356,6 +1364,35 @@ void MpActor::RespawnWithDelay(bool shouldTeleport)
   if (pImpl->isRespawning) {
     return;
   }
+
+  // Some actors are meant to die once.
+  //
+  // Every death in the server funnels through here: DeathEvent, the two paths
+  // in ActionListener, PartOne, and ApplyChangeForm noticing a dead actor on
+  // load. So an actor that should stay dead has to be stopped here or not at
+  // all.
+  //
+  // Which matters because respawning is not only for players. A creature the
+  // gamemode put down for one fight came back at full health, in the same
+  // place, for as long as anybody stood near it: one server had a dozen actors
+  // respawn a hundred and sixty times between them in an afternoon. From the
+  // outside that is a creature that cannot be killed, and a spawn point nobody
+  // asked for, and both were reported as separate bugs.
+  //
+  // Marked per actor rather than decided by kind here, because whether a
+  // particular creature is scenery or a one off is the gamemode's business and
+  // not the engine's. Nothing is marked by default, so a server that says
+  // nothing behaves exactly as before.
+  const std::string& noRespawn =
+    GetDynamicFields().GetValueDump(kNoRespawnProperty);
+  if (!noRespawn.empty() && noRespawn != "null" && noRespawn != "false" &&
+      noRespawn != "0") {
+    spdlog::info("MpActor::RespawnWithDelay {:x} - marked not to respawn, "
+                 "leaving it dead",
+                 GetFormId());
+    return;
+  }
+
   pImpl->isRespawning = true;
 
   ++pImpl->respawnTimerIndex;
