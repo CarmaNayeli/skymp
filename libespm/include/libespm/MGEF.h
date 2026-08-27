@@ -105,6 +105,19 @@ public:
     // spell.
     bool hasPerkCondition = false;
 
+    // The form this effect reaches for when it fires: for a Cloak that is
+    // the spell laid on whoever comes near, and for a summon it is the
+    // creature.
+    //
+    // Needed because a cloak's damage arrives as a hit from a spell the
+    // wearer has never equipped and cannot cast. The Ebony Mail is the case
+    // that asked for it: DA02Armor carries DA02EnchPoisonCloak, whose
+    // DA02ArmorPoisonCloak effect names DA02PoisonCloakDmg here, and that
+    // last one is what the client reports hitting with. Without this there
+    // is no route from the armour somebody is wearing to the spell it is
+    // allowed to do damage with, and every tick of it is refused.
+    uint32_t associatedItemId = 0;
+
     [[nodiscard]] inline bool IsFlagSet(Flags flag) const
     {
       return (static_cast<uint32_t>(flags) & static_cast<uint32_t>(flag)) ==

@@ -976,6 +976,84 @@ bool IsRangedHit(const HitData& hitData, WorldState* worldState)
     sourceLookupRes.rec->GetType() == espm::SPEL::kType;
 }
 
+/**
+ * Whether something the aggressor is wearing is entitled to do damage with
+ * this spell.
+ *
+ * A cloak arrives as a hit from a spell its wearer has never equipped and
+ * could not cast, so the equipped check refuses it and every tick of it is
+ * thrown away. The Ebony Mail is the case that asked for this, and it had
+ * been doing nothing offensively for as long as it has existed here:
+ *
+ *   ARMO DA02Armor            the Ebony Mail
+ *     EITM -> ENCH DA02EnchPoisonCloak
+ *       EFID -> MGEF DA02ArmorPoisonCloak
+ *         associated item -> SPEL DA02PoisonCloakDmg
+ *
+ * That last form is exactly what the client reports hitting with, thirty
+ * times in fifteen seconds, and every one of them was discarded.
+ *
+ * Walked rather than trusted. The alternative was to accept any spell a
+ * client names, and damage is worked out from the spell record, so that
+ * would let anybody pick the hardest hitting spell in the game. This
+ * extends nothing beyond "you are wearing the thing that does this".
+ *
+ * Only reached when the spell is not equipped, which is the rare path, so
+ * ordinary casting pays nothing for it. Armour only: libespm does not read
+ * a weapon's enchantment, and a weapon applies its effect on the blow
+ * rather than through a cloak.
+ */
+bool IsSpellFromWornGear(const MpActor& aggressor, uint32_t spellId,
+                        WorldState* worldState)
+{
+  if (!worldState || !worldState->HasEspm() || !spellId) {
+    return false;
+  }
+
+  auto& browser = worldState->GetEspm().GetBrowser();
+  auto& cache = worldState->GetEspmCache();
+
+  for (const auto& entry : aggressor.GetEquipment().inv.entries) {
+    if (!entry.baseId) {
+      continue;
+    }
+    auto itemLookup = browser.LookupById(entry.baseId);
+    auto* armor = espm::Convert<espm::ARMO>(itemLookup.rec);
+    if (!armor) {
+      continue;
+    }
+    const uint32_t enchantmentId =
+      armor->GetData(cache).enchantmentFormId
+      ? itemLookup.ToGlobalId(armor->GetData(cache).enchantmentFormId)
+      : 0;
+    if (!enchantmentId) {
+      continue;
+    }
+
+    auto enchLookup = browser.LookupById(enchantmentId);
+    auto* enchantment = espm::Convert<espm::ENCH>(enchLookup.rec);
+    if (!enchantment) {
+      continue;
+    }
+
+    for (const auto& effect : enchantment->GetData(cache).effects) {
+      auto mgefLookup =
+        browser.LookupById(enchLookup.ToGlobalId(effect.effectId));
+      auto* magicEffect = espm::Convert<espm::MGEF>(mgefLookup.rec);
+      if (!magicEffect) {
+        continue;
+      }
+      const uint32_t associated =
+        magicEffect->GetData(cache).data.associatedItemId;
+      if (associated && mgefLookup.ToGlobalId(associated) == spellId) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 bool IsDistanceValid(const MpActor& actor, const MpActor& targetActor,
                      const HitData& hitData)
 {
@@ -1135,7 +1213,12 @@ void ActionListener::OnHit(const RawMessageData& rawMsgData,
 
   const auto equipment = aggressor->GetEquipment();
 
-  if (isSourceSpell && equipment.IsSpellEquipped(hitData.source)) {
+  // Equipped, or worn by something entitled to cast it. The second is how a
+  // cloak gets to do its damage at all: see IsSpellFromWornGear.
+  if (isSourceSpell &&
+      (equipment.IsSpellEquipped(hitData.source) ||
+       IsSpellFromWornGear(*aggressor, hitData.source,
+                           &partOne.worldState))) {
     OnSpellHit(aggressor, targetRef, hitData);
     return;
   }
