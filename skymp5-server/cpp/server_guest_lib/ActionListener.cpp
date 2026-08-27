@@ -951,6 +951,31 @@ bool IsBowOrCrossbowShot(const HitData& hitData, WorldState* worldState)
   return true;
 }
 
+/**
+ * Whether this hit came from something that reaches across a distance.
+ *
+ * Bows and crossbows were the whole of it, and spells were left to be judged
+ * as if they were swords: anything landing beyond one exterior cell, about
+ * sixty metres, was rejected. A firebolt goes a great deal further than sixty
+ * metres, so most magic thrown at anything not standing next to the caster was
+ * quietly discarded.
+ */
+bool IsRangedHit(const HitData& hitData, WorldState* worldState)
+{
+  if (IsBowOrCrossbowShot(hitData, worldState)) {
+    return true;
+  }
+
+  if (!worldState || !worldState->HasEspm() || hitData.isBashAttack) {
+    return false;
+  }
+
+  auto sourceLookupRes =
+    worldState->GetEspm().GetBrowser().LookupById(hitData.source);
+  return sourceLookupRes.rec &&
+    sourceLookupRes.rec->GetType() == espm::SPEL::kType;
+}
+
 bool IsDistanceValid(const MpActor& actor, const MpActor& targetActor,
                      const HitData& hitData)
 {
@@ -1062,15 +1087,34 @@ void ActionListener::OnHit(const RawMessageData& rawMsgData,
   }
 
   // TODO: repair IsDistanceValid instead
-  if (!IsBowOrCrossbowShot(hitData, &partOne.worldState)) {
+  //
+  // Spells count as ranged here, the same as bows and crossbows.
+  //
+  // They did not, and the check is a flat 4096 units, which is one exterior
+  // cell and about sixty metres. Every spell thrown further than that was
+  // rejected, and a firebolt travels a great deal further than sixty metres.
+  // On one afternoon's log that was 499 rejections against 373 spell hits
+  // getting through: more magic was being thrown away than was landing, which
+  // is exactly the reported "spells sometimes just do not register on an NPC".
+  //
+  // Nothing about the anticheat reasoning changes. It never applied to a bow
+  // for the obvious reason, and a spell is no more a melee weapon than an
+  // arrow is.
+  if (!IsRangedHit(hitData, &partOne.worldState)) {
     const NiPoint3& aggressorPos = aggressor->GetPos();
     const NiPoint3& targetPos = targetRef->GetPos();
     constexpr float kExteriorCellWidthUnits = 4096.f;
     if ((aggressorPos - targetPos).SqrLength() >
         kExteriorCellWidthUnits * kExteriorCellWidthUnits) {
+      // The source, because without it this line cannot say whether what was
+      // rejected was a sword swing at an impossible range or an ordinary
+      // spell being refused for being a spell. It could not, for months.
       spdlog::error("ActionListener::OnHit - aggressor and targetRef are too "
-                    "distant. Aggressor: {:x}, targetRef: {:x}",
-                    aggressor->GetFormId(), targetRef->GetFormId());
+                    "distant. Aggressor: {:x}, targetRef: {:x}, source: {:x}, "
+                    "distance: {}",
+                    aggressor->GetFormId(), targetRef->GetFormId(),
+                    hitData.source,
+                    std::sqrt((aggressorPos - targetPos).SqrLength()));
       return;
     }
   }
@@ -1103,13 +1147,41 @@ void ActionListener::OnHit(const RawMessageData& rawMsgData,
     return;
   }
 
-  if (aggressor->GetInventory().HasItem(hitData.source) == false) {
-    spdlog::debug("{:x} actor has no {:x} weapon and can't attack",
-                  hitData.aggressor, hitData.source);
+  // Every hit that reaches here has been thrown away, and until now it was
+  // thrown away in silence: both of these were debug, which nothing runs at.
+  //
+  // This is where a spell lands when the server does not believe the caster
+  // has it in hand. Equipment is synced from the client and can be behind, or
+  // wrong, or refused, so the answer to "why did my spell not register" was in
+  // a line nobody was printing. Somebody reported it as inconsistent magic and
+  // there was nothing at all to look at.
+  //
+  // Said at warning level, and says which of the two it was, because the fixes
+  // are different: a spell the server does not think is equipped is an
+  // equipment sync problem, and a weapon not in the inventory is a different
+  // one entirely.
+  if (isSourceSpell) {
+    spdlog::warn("ActionListener::OnHit - spell {:x} from {:x} discarded, the "
+                 "server does not have it equipped. Equipped: left {:x}, "
+                 "right {:x}, voice {:x}, instant {:x}",
+                 hitData.source, hitData.aggressor,
+                 equipment.leftSpell.value_or(0),
+                 equipment.rightSpell.value_or(0),
+                 equipment.voiceSpell.value_or(0),
+                 equipment.instantSpell.value_or(0));
+    return;
   }
 
-  spdlog::debug("{:x} weapon is not equipped by {:x} actor and cannot be used",
-                hitData.source, hitData.aggressor);
+  if (aggressor->GetInventory().HasItem(hitData.source) == false) {
+    spdlog::warn("ActionListener::OnHit - {:x} discarded, actor {:x} does not "
+                 "have it at all",
+                 hitData.source, hitData.aggressor);
+    return;
+  }
+
+  spdlog::warn("ActionListener::OnHit - {:x} discarded, actor {:x} has it but "
+               "does not have it equipped",
+               hitData.source, hitData.aggressor);
 }
 
 void ActionListener::OnUpdateAnimVariables(
