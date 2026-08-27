@@ -53,13 +53,40 @@ void OnSendEventEnter(GumInvocationContext* ic)
         auto info = script->GetTypeInfo();
         auto name = info->GetName();
 
-        const char* skyui_name = "SKI_"; // start skyui object name
-        if (strlen(name) >= 4 && name[0] == skyui_name[0] &&
-            name[1] == skyui_name[1] && name[2] == skyui_name[2] &&
-            name[3] == skyui_name[3]) {
-          blockEvents = false;
-          break;
-        } else if (!stricmp(name, "defaultDisableHavokOnLoad")) {
+        // Papyrus events are blocked wholesale, and this is the list of what
+        // is let through anyway.
+        //
+        // Blocking them is deliberate: vanilla scripts running against a
+        // shared world do things the server never asked for. But it is a
+        // blunt instrument, and anything an interface mod does through
+        // Papyrus dies with the rest, silently, because the event name is
+        // replaced with an empty string rather than refused.
+        //
+        // That is what killed RaceMenu's light toggle and its colour pickers,
+        // and it took most of a night to find because of how selective it
+        // looks from outside. Sculpting worked, zoom worked, the sliders for
+        // weight and presets worked, and they all work because they are
+        // skee64's own native code. Only the two controls that go out through
+        // a Papyrus event did nothing, so the mod looked half broken rather
+        // than blocked, and every check said it was healthy: the plugin
+        // loaded, the quest ran, skee64 held and returned values for the
+        // actor. Nothing was wrong. The events simply never arrived.
+        //
+        // Matched on the script name's prefix, the same way SkyUI already
+        // was. RaceMenu's scripts are RaceMenu, RaceMenuBase, RaceMenuLoad
+        // and RaceMenuPlugin; NiOverride and CharGen are skee64's own and
+        // travel with it.
+        static const char* kAllowedPrefixes[] = { "SKI_", "RaceMenu",
+                                                  "NiOverride", "CharGen" };
+        bool allowed = false;
+        for (auto prefix : kAllowedPrefixes) {
+          const size_t n = strlen(prefix);
+          if (strlen(name) >= n && !_strnicmp(name, prefix, n)) {
+            allowed = true;
+            break;
+          }
+        }
+        if (allowed || !stricmp(name, "defaultDisableHavokOnLoad")) {
           // Maybe worth unblocking events only for this script, not for all
           blockEvents = false;
           break;
@@ -231,6 +258,17 @@ void InstallQueueNinodeUpdateHook()
 /**
  * Apply Masks To Render Targets hook
  */
+// This once skipped the substitution while the race menu was open, on the
+// theory that it was overwriting colours picked in RaceMenu. It was not.
+// Sampling the actor twice a second through a whole editing session showed
+// every value the menu writes changing and staying changed, with nothing
+// putting anything back. The real cause was Papyrus events being blocked, in
+// the SendEvent hook above.
+//
+// Taken back out rather than left in as harmless. It would have made other
+// actors' heads render with their own tints instead of the server's for as
+// long as somebody had the menu open, which is a real if small regression to
+// carry for a theory that turned out to be wrong.
 void OnApplyMasksToRenderTargetsEnter(GumInvocationContext* ic)
 {
   if (g_queueNiNodeActorId > 0) {
