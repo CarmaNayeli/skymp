@@ -455,7 +455,34 @@ export class RemoteServer extends ClientListener {
       }
     };
 
-    if (msg.isMe && msg.props && msg.props.learnedSpells) {
+    // An empty list is not an instruction to forget everything.
+    //
+    // This syncs spells by removing every one the actor has and adding back
+    // the ones the server named. A server that does not track spells sends an
+    // empty array, which is truthy, so the whole thing ran on every spawn and
+    // did nothing but destroy.
+    //
+    // And it takes far more than spells with it. getNthSpell walks abilities
+    // too, so every spawn stripped racial powers and, worse, the abilities the
+    // game grants for wearing a full armour set. From one player's log:
+    //
+    //   removeResult: true, spellName: Deathbrand Instinct
+    //   removeResult: true, spellName: Shrouded Armor Full Set
+    //   removeResult: true, spellName: Nightingale Armor Full Set
+    //   removeResult: true, spellName: Ahzidal's Genius
+    //   removeResult: true, spellName: Crossbow bonus
+    //   player learnedSpells: []
+    //
+    // Deathbrand's set bonus was reported as "not working". It worked. It was
+    // being taken off a second after it was granted, every single time, along
+    // with anything a game master had handed over, which is the other half of
+    // "spells keep disappearing".
+    //
+    // Nothing here says a server may not enforce a spell list. It says an
+    // empty list means the server is not enforcing one, because wiping every
+    // ability in the game to synchronise nothing cannot be what was meant.
+    if (msg.isMe && msg.props && msg.props.learnedSpells &&
+        msg.props.learnedSpells.length > 0) {
       const learnedSpells = msg.props.learnedSpells;
 
       once('update', () => {
