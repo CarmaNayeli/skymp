@@ -3,6 +3,52 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      /*
+        Hearthheld patch. Buttons upstream are a fixed 64px tall and clip their
+        label with an ellipsis, so a long character name is either cut off
+        ("Delete Savisi Menedren f...") or wraps and spills out of the frame.
+        Letting them grow keeps long names readable.
+
+        This lives in the page rather than being injected by the server because
+        the character select screen is drawn before any server code has run.
+
+        Deliberately no rules for .login-form itself. Its height is measured from
+        its content in JavaScript and is also what positions it, so overriding
+        that here left the whole panel hanging off the top of the screen. Growing
+        the buttons is enough, because the panel measures them afterwards.
+
+        It lives in this file, which webpack templates the built page from,
+        because for a while it lived only in the built page. A rebuild of the
+        front end wrote that page fresh and took the patch out again, silently,
+        and the only thing that noticed was the check comparing what was built
+        against what players are downloading.
+      */
+      .skymp-button {
+        height: auto !important;
+        min-height: 64px !important;
+      }
+      .button-middle {
+        align-self: center !important;
+        padding-top: 6px !important;
+        padding-bottom: 6px !important;
+      }
+      .button-middle *,
+      .button-middle--text {
+        overflow: visible !important;
+        text-overflow: clip !important;
+        white-space: normal !important;
+        max-height: none !important;
+        line-height: 1.15 !important;
+      }
+      /* Labels and headings in the same panels clip the same way. */
+      .login-form [class*="text"],
+      .login-form--content_header {
+        overflow: visible !important;
+        text-overflow: clip !important;
+        white-space: normal !important;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
