@@ -34,10 +34,19 @@ namespace {
 // comparison per hit.
 const char* kDamageMultOverrideProperty = "private.damageMultOverride";
 
-std::optional<float> ReadDamageMultOverride(const MpActor& aggressor)
+// And what the person being hit does to it, which is the same idea from the
+// other end. Berserker Rage is half the damage taken as well as twice the
+// damage dealt, and the Orc power that says so had no way to say it: every
+// multiplier in this file was a property of whoever was swinging.
+//
+// Left off everybody by default the same way, so the cost of it on a hit
+// where nobody is raging is one more string comparison.
+const char* kDamageTakenMultProperty = "private.damageTakenMult";
+
+std::optional<float> ReadMultiplier(const MpActor& actor,
+                                    const char* property)
 {
-  const std::string& dump =
-    aggressor.GetDynamicFields().GetValueDump(kDamageMultOverrideProperty);
+  const std::string& dump = actor.GetDynamicFields().GetValueDump(property);
 
   // What GetValueDump answers for a property nobody has set, which is almost
   // every actor on almost every hit. Checked first and by string compare, so
@@ -96,12 +105,15 @@ float DamageMultConditionalFormula::CalculateDamage(
 
   // Ahead of the settings check as well as the bands, so an override still
   // means something on a server that configured no bands at all.
-  if (auto overridden = ReadDamageMultOverride(aggressor)) {
-    return baseDamage * *overridden;
+  const float taken =
+    ReadMultiplier(target, kDamageTakenMultProperty).value_or(1.f);
+
+  if (auto overridden = ReadMultiplier(aggressor, kDamageMultOverrideProperty)) {
+    return baseDamage * *overridden * taken;
   }
 
   if (!settings) {
-    return baseDamage;
+    return baseDamage * taken;
   }
 
   for (auto& pair : settings->entries) {
@@ -139,7 +151,7 @@ float DamageMultConditionalFormula::CalculateDamage(
     }
   }
 
-  return baseDamage;
+  return baseDamage * taken;
 }
 
 float DamageMultConditionalFormula::CalculateDamage(
@@ -151,12 +163,15 @@ float DamageMultConditionalFormula::CalculateDamage(
 
   // The same override covers spells, so a spawned mage is at the strength it
   // was asked for whichever hand it uses.
-  if (auto overridden = ReadDamageMultOverride(aggressor)) {
-    return baseDamage * *overridden;
+  const float taken =
+    ReadMultiplier(target, kDamageTakenMultProperty).value_or(1.f);
+
+  if (auto overridden = ReadMultiplier(aggressor, kDamageMultOverrideProperty)) {
+    return baseDamage * *overridden * taken;
   }
 
   if (!settings) {
-    return baseDamage;
+    return baseDamage * taken;
   }
 
   for (auto& pair : settings->entries) {
@@ -194,7 +209,7 @@ float DamageMultConditionalFormula::CalculateDamage(
     }
   }
 
-  return baseDamage;
+  return baseDamage * taken;
 }
 
 DamageMultConditionalFormulaSettings DamageMultConditionalFormula::ParseConfig(
