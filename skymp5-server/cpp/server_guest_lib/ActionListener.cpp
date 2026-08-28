@@ -683,8 +683,13 @@ void ActionListener::OnHostAttempt(const RawMessageData& rawMsgData,
   if (hoster == 0 || !lastRemoteUpdate ||
       std::chrono::system_clock::now() - *lastRemoteUpdate >
         hostResetTimeout) {
-    partOne.GetLogger().info("Hoster changed from {0:x} to {0:x}", prevHoster,
-                             me->GetFormId());
+    // Both placeholders were {0}, so this printed the old hoster twice and
+    // every line read "changed from X to X". Two hundred and forty nine of
+    // them in ten hours, none of which said who had taken a creature over,
+    // which is the one thing the line exists to say and the first thing you
+    // want when two players disagree about what an animal is doing.
+    partOne.GetLogger().info("Hoster of {0:x} changed from {1:x} to {2:x}",
+                             remoteId, prevHoster, me->GetFormId());
     hoster = me->GetFormId();
     remote.UpdateHoster(hoster);
 
