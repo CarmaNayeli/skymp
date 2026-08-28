@@ -95,6 +95,7 @@ Napi::Object ScampServer::Init(Napi::Env env, Napi::Object exports)
       InstanceMethod("getActorName", &ScampServer::GetActorName),
       InstanceMethod("destroyActor", &ScampServer::DestroyActor),
       InstanceMethod("setRaceMenuOpen", &ScampServer::SetRaceMenuOpen),
+      InstanceMethod("setHoster", &ScampServer::SetHoster),
       InstanceMethod("getActorsByProfileId",
                      &ScampServer::GetActorsByProfileId),
       InstanceMethod("setEnabled", &ScampServer::SetEnabled),
@@ -746,6 +747,26 @@ Napi::Value ScampServer::SetRaceMenuOpen(const Napi::CallbackInfo& info)
     throw Napi::Error::New(info.Env(), (std::string)e.what());
   }
   return info.Env().Undefined();
+}
+
+/**
+ * Hands one creature to one player, from the gamemode.
+ *
+ * Answers whether it happened rather than throwing, because every reason to
+ * refuse is ordinary: the creature is gone, it is somebody's character, the
+ * player it would go to is not connected. A gamemode asking about a wolf that
+ * has since been killed should get a no, not an exception.
+ */
+Napi::Value ScampServer::SetHoster(const Napi::CallbackInfo& info)
+{
+  auto remoteId = NapiHelper::ExtractUInt32(info[0], "remoteId");
+  auto hosterFormId = NapiHelper::ExtractUInt32(info[1], "hosterFormId");
+  try {
+    return Napi::Boolean::New(info.Env(),
+                              partOne->SetHoster(remoteId, hosterFormId));
+  } catch (std::exception& e) {
+    throw Napi::Error::New(info.Env(), (std::string)e.what());
+  }
 }
 
 Napi::Value ScampServer::GetActorsByProfileId(const Napi::CallbackInfo& info)

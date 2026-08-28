@@ -8,6 +8,7 @@
 #include "CreateActorMessage.h"
 #include "CustomPacketMessage.h"
 #include "DestroyActorMessage.h"
+#include "HostStartMessage.h"
 #include "HostStopMessage.h"
 #include "SetRaceMenuOpenMessage.h"
 #include "UpdateGameModeDataMessage.h"
@@ -634,6 +635,93 @@ void PartOne::RequestPacketHistoryPlayback(Networking::UserId userId,
   } else {
     throw std::runtime_error("Invalid user id " + std::to_string(userId));
   }
+}
+
+/**
+ * Hands one creature to one player, whatever the claiming rules would say.
+ *
+ * Every creature is driven by whichever client hosts it: that machine runs
+ * its AI and streams the result, and the server refuses movement from anybody
+ * else. Ordinarily a client claims a creature by asking, and gets it only if
+ * nobody holds it or the holder has gone quiet for two seconds.
+ *
+ * Which is right until something changes what a creature is, on one machine
+ * only. Command Animal is the case this was written for: the caster's copy of
+ * the wolf changes sides, the hoster's copy does not, and the two disagree
+ * for as long as the spell lasts. One player watched it attack on her screen
+ * while the other watched it spin on the spot.
+ *
+ * Nothing carries "this creature has changed sides" between clients, and
+ * building that would mean syncing the AI itself. Handing over the creature
+ * instead is the same answer in one move: the machine that knows about the
+ * command is the one now driving it.
+ *
+ * Refuses to take an actor a player is playing, which is the same rule the
+ * claiming path enforces and a far worse thing to get wrong.
+ */
+bool PartOne::SetHoster(uint32_t remoteId, uint32_t hosterFormId)
+{
+  auto& remoteForm = worldState.LookupFormById(remoteId);
+  auto* remote = remoteForm ? remoteForm->AsObjectReference() : nullptr;
+  if (!remote) {
+    return false;
+  }
+
+  // Somebody's character is never a creature to be handed around.
+  if (serverState.UserByActor(remote->AsActor()) !=
+      Networking::InvalidUserId) {
+    return false;
+  }
+
+  auto& hosterForm = worldState.LookupFormById(hosterFormId);
+  auto* hosterActor = hosterForm ? hosterForm->AsActor() : nullptr;
+  if (!hosterActor) {
+    return false;
+  }
+  const auto hosterUser = serverState.UserByActor(hosterActor);
+  if (hosterUser == Networking::InvalidUserId) {
+    return false;
+  }
+
+  auto& hoster = worldState.hosters[remoteId];
+  const uint32_t prevHoster = hoster;
+  if (prevHoster == hosterFormId) {
+    return true;
+  }
+
+  GetLogger().info("Hoster of {0:x} handed to {1:x} from {2:x} by the gamemode",
+                   remoteId, hosterFormId, prevHoster);
+  hoster = hosterFormId;
+  remote->UpdateHoster(hoster);
+
+  // The same pause the claiming path leaves behind it, so the previous
+  // holder's next movement update cannot take the creature straight back.
+  const auto remoteIdx = remote->GetIdx();
+  if (worldState.lastMovUpdateByIdx.size() <= remoteIdx) {
+    worldState.lastMovUpdateByIdx.resize(remoteIdx + 1);
+  }
+  worldState.lastMovUpdateByIdx[remoteIdx] = std::chrono::system_clock::now();
+
+  uint64_t longFormId = remote->GetFormId();
+  if (remote->AsActor() && longFormId < 0xff000000) {
+    longFormId += 0x100000000;
+  }
+
+  HostStartMessage started;
+  started.target = longFormId;
+  GetSendTarget().Send(hosterUser, started, true);
+
+  // And the one who had it is told, or their game goes on driving something
+  // the server will no longer accept updates for.
+  auto& prevForm = worldState.LookupFormById(prevHoster);
+  if (auto* prevActor = prevForm ? prevForm->AsActor() : nullptr) {
+    const auto prevUser = serverState.UserByActor(prevActor);
+    if (prevUser != Networking::InvalidUserId && prevUser != hosterUser) {
+      SendHostStop(prevUser, *remote);
+    }
+  }
+
+  return true;
 }
 
 void PartOne::SendHostStop(Networking::UserId badHosterUserId,

@@ -129,6 +129,11 @@ public:
   void RequestPacketHistoryPlayback(Networking::UserId userId,
                                     const PacketHistory& history);
 
+  // Hands one creature to one player, whatever the ordinary claiming rules
+  // would have decided. See the implementation for why that is a thing a
+  // gamemode needs to be able to do.
+  bool SetHoster(uint32_t remoteId, uint32_t hosterFormId);
+
   void SendHostStop(Networking::UserId badHosterUserId,
                     MpObjectReference& remote);
 
