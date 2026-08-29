@@ -302,7 +302,15 @@ export class RemoteServer extends ClientListener {
 
             ModelApplyUtils.applyModelNodeTextureSet(refr, msg.props.setNodeTextureSet);
 
-            ModelApplyUtils.applyModelIsDisabled(refr, !!msg.props['disabled']);
+            // The server calls this isDisabled, and always has.
+            //
+            // Read as 'disabled' it was undefined every time, so this said not
+            // disabled about everything and, worse, actively enabled anything a
+            // client had disabled locally: applyModelIsDisabled only acts when the
+            // two disagree, so a hidden reference was switched back on the moment
+            // the server re-sent it. Every corpse a game master had ever hidden was
+            // still standing there for exactly this reason.
+            ModelApplyUtils.applyModelIsDisabled(refr, !!msg.props['isDisabled']);
 
             // TODO: move to a separate module
             const animation = msg.props.lastAnimation;
@@ -771,7 +779,7 @@ export class RemoteServer extends ClientListener {
           ModelApplyUtils.applyModelIsOpen(refr, !!msgData);
         } else if (msg.propName === 'isHarvested') {
           ModelApplyUtils.applyModelIsHarvested(refr, !!msgData);
-        } else if (msg.propName === 'disabled') {
+        } else if (msg.propName === 'isDisabled') {
           ModelApplyUtils.applyModelIsDisabled(refr, !!msgData);
         } else if (msg.propName === 'scale') {
           ModelApplyUtils.applyModelScale(refr, msgData as number);

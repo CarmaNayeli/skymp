@@ -168,9 +168,26 @@ export class MagicSyncService extends ClientListener {
         return animVarsData;
     }
 
+    // What counts as a cast ending.
+    //
+    // The two equipped events alone were the whole of this, and they are the
+    // re-equip animation: they fire on sheathing or switching gear, not on
+    // letting go of a concentration spell's trigger. So Flames went on burning
+    // on every screen but the caster's until they put their hands away, which
+    // is the bug this was supposed to have fixed and did not.
+    //
+    // The release events are the ones that actually mean let go, and the file
+    // already knew their names: isSpellCastAnim below has listed both since
+    // before any of this, so these are not a guess about what the behaviour
+    // graph calls things.
+    //
+    // Harmless on a fire and forget spell, where release fires once the
+    // projectile is away: remote clients cast those with castSpellImmediate,
+    // so there is nothing left running for the interrupt to stop.
     private isInteraptSpellCastAnim(animEventName: string): boolean {
         const eventName = animEventName.toLowerCase();
-        return eventName === "mlh_equipped_event" || eventName === "mrh_equipped_event";
+        return eventName === "mlh_equipped_event" || eventName === "mrh_equipped_event"
+            || eventName === "mlh_spellrelease_event" || eventName === "mrh_spellrelease_event";
     };
 
     private isSpellCastAnim(animEventName: string): boolean {
