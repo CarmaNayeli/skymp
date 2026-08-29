@@ -1333,6 +1333,20 @@ void ActionListener::OnSpellCast(const RawMessageData& rawMsgData,
     return;
   }
 
+  // An interrupt is relayed before anything is allowed to refuse it.
+  //
+  // Everything below this line exists to decide whether a cast may start,
+  // and none of those reasons apply to one stopping: the worst a stray
+  // interrupt can do is end an effect that had already ended, while a
+  // dropped one leaves a concentration spell running on every screen but the
+  // caster's until something else clears it. The equipment check underneath
+  // was catching them, which is a spell that is no longer equipped being
+  // refused permission to stop.
+  if (spellCastData.interruptCast) {
+    SendToNeighbours(myActor->idx, rawMsgData);
+    return;
+  }
+
   const auto equipment = caster->GetEquipment();
 
   if (equipment.IsSpellEquipped(spellCastData.spell) == false) {
@@ -1343,10 +1357,6 @@ void ActionListener::OnSpellCast(const RawMessageData& rawMsgData,
   }
 
   SendToNeighbours(myActor->idx, rawMsgData);
-
-  if (spellCastData.interruptCast) {
-    return;
-  }
 
   auto& browser = partOne.worldState.GetEspm().GetBrowser();
 
