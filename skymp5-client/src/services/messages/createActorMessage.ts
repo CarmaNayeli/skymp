@@ -45,7 +45,10 @@ export interface CreateActorMessageAdditionalProps {
     isHarvested?: boolean;
     setNodeTextureSet?: SetNodeTextureSetEntry[];
     setNodeScale?: SetNodeScaleEntry[];
-    disabled?: boolean;
+    // isDisabled, which is what CreateActorMessage.h has always serialized
+    // it as. Declared here as 'disabled', so the reader below it looked for
+    // a key that is never sent and the compiler agreed with the reader.
+    isDisabled?: boolean;
     lastAnimation?: string;
     displayName?: string;
     isHostedByOther?: boolean;
