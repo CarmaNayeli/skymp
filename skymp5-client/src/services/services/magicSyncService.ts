@@ -46,6 +46,7 @@ export class MagicSyncService extends ClientListener {
         // update should wait out a cast rather than fight it. Reusing a signal
         // already proven reliable there is safer than trusting a fresh guess.
         const player = this.sp.Game.getPlayer();
+        this.sampleCrosshair();
         const isCastingNow = !!player && (
             player.getAnimationVariableBool("IsCastingRight") ||
             player.getAnimationVariableBool("IsCastingLeft") ||
@@ -81,6 +82,69 @@ export class MagicSyncService extends ClientListener {
             });
         });
 
+    }
+
+    /**
+     * Who the player is pointing at, kept fresh for the next cast.
+     *
+     * Read here rather than when a cast happens, because this is the game
+     * thread and a cast event is not somewhere a Papyrus question can safely
+     * be asked. A hundred milliseconds old is the same answer: nobody swings
+     * a crosshair off a person and casts at them in less time than that.
+     */
+    private sampleCrosshair() {
+        const now = Date.now();
+        if (now - this.lastCrosshairAt < 100) {
+            return;
+        }
+        this.lastCrosshairAt = now;
+        try {
+            const looked = this.sp.Game.getCurrentCrosshairRef();
+            const actor = looked ? this.sp.Actor.from(looked) : null;
+            this.crosshairActorId = actor ? actor.getFormID() : 0;
+        } catch (e) {
+            this.crosshairActorId = 0;
+        }
+    }
+
+    private crosshairActorId = 0;
+    private lastCrosshairAt = 0;
+
+    /**
+     * Who a cast is aimed at, which Skyrim mostly declines to say.
+     *
+     * SpellCastEvent fills in a target for a spell that has one and leaves it
+     * empty for an aimed spell, which is nearly every spell anybody points at
+     * another person. That empty target travelled all the way to the other
+     * machine and became a null magicTarget, and a concentration spell cast at
+     * no target does nothing at all.
+     *
+     * Which is the whole of healing never working. Damage never needed this,
+     * because damage is reported down a different road, the hit path, and a
+     * hit always knows what it hit. A heal has no hit. It had nothing but this
+     * field, and this field was empty, so a healer's spell was replayed on the
+     * healed player's machine aimed at nobody and their health never moved.
+     * What the healer saw improving was their own copy of the other person.
+     *
+     * So an aimed cast falls back to what the caster is looking at. Only for
+     * the local player, since nobody else's crosshair is knowable from here,
+     * and only when it is an actor: a heal aimed at a chair is aimed at
+     * nothing, and saying so plainly is better than sending a chair.
+     */
+    private targetOf(e: SpellCastEvent): number {
+        // @ts-expect-error (TODO: Remove in 2.10.0)
+        const named = e.target;
+        if (named) {
+            return localIdToRemoteId(named.getFormID(), true);
+        }
+        if (!this.crosshairActorId) {
+            return 0;
+        }
+        const player = this.sp.Game.getPlayer();
+        if (!player || !e.caster || e.caster.getFormID() !== player.getFormID()) {
+            return 0;
+        }
+        return localIdToRemoteId(this.crosshairActorId, true);
     }
 
     private onSpellCast(event: SpellCastEvent) {
@@ -131,8 +195,7 @@ export class MagicSyncService extends ClientListener {
     private getSpellCastEventData(e: SpellCastEvent, isInterruptCast: boolean): SpellCastMsgData {
         const spellCastData: SpellCastMsgData = {
             caster: localIdToRemoteId(e.caster.getFormID(), true),
-            // @ts-expect-error (TODO: Remove in 2.10.0)
-            target: e.target ? localIdToRemoteId(e.target.getFormID(), true) : 0,
+            target: this.targetOf(e),
             spell: e.spell ? e.spell.getFormID() : 0,
             interruptCast: isInterruptCast,
             // @ts-expect-error (TODO: Remove in 2.10.0)

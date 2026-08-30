@@ -1,5 +1,5 @@
 // @ts-expect-error (TODO: Remove in 2.10.0)
-import { Actor, Form, FormType, Menu, interruptCast, castSpellImmediate, printConsole, applyAnimationVariablesToActor, ActorAnimationVariables } from 'skyrimPlatform';
+import { Actor, Form, FormType, Menu, Spell, interruptCast, castSpellImmediate, printConsole, applyAnimationVariablesToActor, ActorAnimationVariables } from 'skyrimPlatform';
 import {
   Armor,
   Cell,
@@ -1141,10 +1141,12 @@ export class RemoteServer extends ClientListener {
       // everybody around them with hundreds of identical exceptions and
       // nothing anywhere naming the cause.
       //
-      // Empty rather than skipped, so the spell is still seen. Animation
-      // variables decide how the cast looks, not whether it happens, and a
-      // healer whose spell is invisible to the person being healed is a worse
-      // outcome than one whose hands are in the wrong pose.
+      // Empty rather than skipped only because the two amount to the same
+      // thing here and this way is quieter. castSpellImmediate applies these
+      // variables to the actor before it casts anything and gives up if they
+      // will not apply, so an empty set is a cast that does not happen either
+      // way. What actually fixes the missing field is the sending end, which
+      // no longer throws its way out of filling it in.
       const sentVariables = msg.data.actorAnimationVariables;
       const actorAnimationVariables: ActorAnimationVariables = {
         booleans: new Uint8Array(sentVariables?.booleans ?? []),
@@ -1157,9 +1159,18 @@ export class RemoteServer extends ClientListener {
         return;
       }
 
-      const spell = ac.getEquippedSpell(msg.data.castingSource);
-      if (spell) {
-        castSpellImmediate(ac.getFormID(), msg.data.castingSource, spell.getFormID(), remoteIdToLocalId(msg.data.target),
+      // The spell that was cast, and only failing that the one this machine
+      // believes is in their hand.
+      //
+      // msg.data.spell has always been on the message and was never read.
+      // Guessing from equipment is right almost always and wrong exactly when
+      // it matters: equipment arrives on its own message, so somebody who has
+      // just swapped hands has their previous spell replayed on every screen
+      // but their own until it catches up.
+      const cast = Spell.from(Game.getFormEx(msg.data.spell))
+        || ac.getEquippedSpell(msg.data.castingSource);
+      if (cast) {
+        castSpellImmediate(ac.getFormID(), msg.data.castingSource, cast.getFormID(), remoteIdToLocalId(msg.data.target),
           msg.data.aimAngle, msg.data.aimHeading, actorAnimationVariables);
       }
     });
