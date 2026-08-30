@@ -148,8 +148,30 @@ export class MagicSyncService extends ClientListener {
         return spellCastData;
     }
 
+    /**
+     * The caster's animation variables, or nothing if the game has no answer.
+     *
+     * getAnimationVariablesFromActor returns undefined for an actor it cannot
+     * look up, and reading .booleans straight off that throws. Which would be
+     * a small thing, except for where it is called from.
+     *
+     * sendInterruptForLastCast asks for the variables before it sends the
+     * interrupt. So a caster the game could not look up meant the throw landed
+     * first and the interrupt was never sent at all: the beam stopped on the
+     * caster's own screen and went on burning, and hurting, on everybody
+     * else's until they sheathed. That is the flames that would not stop, and
+     * it is the same missing field that flooded every reader near a caster
+     * with exceptions once the message did go out.
+     *
+     * So this answers with nothing rather than throwing, and the callers treat
+     * nothing as a message worth sending anyway. What these variables decide
+     * is how a cast looks. Whether it has stopped is not theirs to hold up.
+     */
     private getAnimationVariablesFromActorConverted(actorId: number) {
         const animVars = getAnimationVariablesFromActor(actorId);
+        if (!animVars) {
+            return undefined;
+        }
         const booleans: ArrayBuffer = animVars.booleans;
         const floats: ArrayBuffer = animVars.floats;
         const integers: ArrayBuffer = animVars.integers;
@@ -160,7 +182,7 @@ export class MagicSyncService extends ClientListener {
         }
     }
 
-    private getUpdateAnimVariablesEventData(ac: Actor, animVariables: ActorAnimationVariables): UpdateAnimVariablesMessageMsgData {
+    private getUpdateAnimVariablesEventData(ac: Actor, animVariables: ActorAnimationVariables | undefined): UpdateAnimVariablesMessageMsgData {
         const animVarsData: UpdateAnimVariablesMessageMsgData = {
             actorRemoteId: localIdToRemoteId(ac.getFormID(), true),
             actorAnimationVariables: animVariables,
