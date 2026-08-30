@@ -95,8 +95,10 @@ export class FormView {
           if (equalWithoutNames) {
             // Change name inplace
             const refr = ObjectReference.from(Game.getFormEx(this.refrId));
-            refr?.getBaseObject()?.setName(model.appearance.name);
-            refr?.setDisplayName(model.appearance.name, true);
+            const shown = this.shownNameFor(model.appearance.name);
+            refr?.getBaseObject()?.setName(shown);
+            refr?.setDisplayName(shown, true);
+            this.displayNameShowsMet = this.haveMetLocalPlayer();
             //printConsole("Appearance updated, changing name inplace");
           } else {
             // Force re-apply appearance on the next getAppearanceBasedBase call
@@ -295,7 +297,10 @@ export class FormView {
         }
 
         if (model.appearance && model.appearance.name) {
-          refr?.setDisplayName("" + model.appearance.name, true);
+          // Named as a stranger from the moment it spawns, rather than named
+          // properly and corrected a frame later: a frame is enough to read.
+          refr?.setDisplayName(this.shownNameFor("" + model.appearance.name), true);
+          this.displayNameShowsMet = this.haveMetLocalPlayer();
         }
         Actor.from(refr)?.setActorValue("attackDamageMult", 0);
         } catch (e) {
@@ -620,6 +625,14 @@ export class FormView {
       }
     }
 
+    // Before the nametag block and outside it. What somebody is called has to
+    // be right whenever anything might read it, and the tag is drawn under
+    // conditions a pickpocket menu is opened in spite of: close, sneaking, and
+    // often with no tag on screen at all.
+    if (refr && model.appearance?.name) {
+      this.applyDisplayName(refr, model.appearance.name);
+    }
+
     if (FormView.isDisplayingNicknames && this.refrId && model.appearance?.name) {
       const headPart = "NPC Head [Head]";
       const maxNicknameDrawDistance = 1000;
@@ -677,7 +690,9 @@ export class FormView {
             const metNow = this.haveMetLocalPlayer();
             if (metNow !== this.nicknameShowedMet) {
               this.nicknameShowedMet = metNow;
-              setTextString(this.textNameId, metNow ? refr.getDisplayName() : "Unknown");
+              // The display name has already been put right above, so this is
+              // reading what the actor is now called rather than deciding it.
+              setTextString(this.textNameId, refr.getDisplayName());
             }
             setTextPos(this.textNameId, textXPos, textYPos);
             if (this.textSerialId) {
@@ -792,6 +807,43 @@ export class FormView {
    * Nobody was ever recognised, both sides shook hands and both went on seeing
    * a stranger.
    */
+  /**
+   * What this actor should be called, on this machine, right now.
+   *
+   * Hiding a stranger's name at the nametag was hiding it in one of the places
+   * it appears. The name itself was still written onto the actor, so anything
+   * else the game draws from it read out the real one: crouching behind
+   * somebody and pressing to pickpocket opens a menu titled with their name,
+   * and there was nothing in the tag's logic that could have stopped it.
+   *
+   * So the actor is called Unknown until the two have met, and the tag becomes
+   * one of the things that follows from that rather than the only thing that
+   * knows about it.
+   */
+  private shownNameFor(realName: string): string {
+    return this.haveMetLocalPlayer() ? realName : "Unknown";
+  }
+
+  /**
+   * Whether the name currently on the actor is the real one.
+   *
+   * Kept, and checked outside the nametag block on purpose. A tag is only
+   * drawn within a thousand units, in line of sight, of somebody who is not
+   * sneaking; a pickpocket menu is opened by somebody who is sneaking, at
+   * arm's length, and the name has to already be right by then. Undefined
+   * rather than false to start with, so the first pass always writes.
+   */
+  private displayNameShowsMet: boolean | undefined = undefined;
+
+  private applyDisplayName(refr: ObjectReference, realName: string): void {
+    const met = this.haveMetLocalPlayer();
+    if (met === this.displayNameShowsMet) {
+      return;
+    }
+    this.displayNameShowsMet = met;
+    refr.setDisplayName(met ? realName : "Unknown", true);
+  }
+
   private haveMetLocalPlayer(): boolean {
     try {
       const known = storage["hhMet"];
