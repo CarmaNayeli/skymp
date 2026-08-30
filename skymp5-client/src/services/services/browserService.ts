@@ -55,13 +55,7 @@ export class BrowserService extends ClientListener {
     this.pruneClosedMenus();
 
     if (!this.typingBlocked() && e.isDown([DxScanCode.F6])) {
-      const newState = !this.sp.browser.isFocused();
-      this.sp.browser.setFocused(newState);
-      if (newState) {
-        this.sp.browser.executeJavaScript(focusEventString);
-      } else {
-        this.sp.browser.executeJavaScript(unfocusEventString);
-      }
+      this.setBrowserFocused(!this.sp.browser.isFocused());
     }
     if (e.isDown([DxScanCode.Enter])) {
       if (this.typingBlocked()) {
@@ -70,17 +64,64 @@ export class BrowserService extends ClientListener {
         this.badMenusOpen.forEach((name) => open.push(name));
         logTrace(this, `Enter ignored, these are open: ${open.join(", ")}`);
       } else {
-        this.sp.browser.setFocused(true);
-        this.sp.browser.executeJavaScript(focusEventString);
+        this.setBrowserFocused(true);
       }
     }
     if (e.isDown([DxScanCode.Escape])) {
       if (this.sp.browser.isFocused()) {
-        this.sp.browser.setFocused(false);
-        this.sp.browser.executeJavaScript(unfocusEventString);
+        this.setBrowserFocused(false);
       }
     }
   }
+
+  /**
+   * Focus, and whether the player is still walking.
+   *
+   * Opening chat with a movement key held left the player walking, forever,
+   * with nothing that would stop them: focusing the browser takes the keyboard
+   * away from the game, so the release of the key never arrives and the game
+   * goes on believing it is held. Alt tabbing away and back was the only fix
+   * anybody found, and it works for the same reason, the game losing and
+   * regaining focus is a release it does see.
+   *
+   * So movement is switched off for as long as the browser has the keyboard.
+   * That is not a restriction being added: the keys go into the text box while
+   * you are typing, so nobody could walk deliberately anyway. It only makes
+   * the game agree with what is already true.
+   *
+   * Deferred to update because this is called from a key handler, which is not
+   * the game thread. The same reason Ui.isMenuOpen cannot be asked there, noted
+   * at length on the constructor above.
+   */
+  private setBrowserFocused(focused: boolean) {
+    this.sp.browser.setFocused(focused);
+    this.sp.browser.executeJavaScript(focused ? focusEventString : unfocusEventString);
+    this.applyMovementBlock(focused);
+  }
+
+  private applyMovementBlock(blocked: boolean) {
+    if (blocked === this.movementBlocked) {
+      return;
+    }
+    this.movementBlocked = blocked;
+    this.controller.once("update", () => {
+      try {
+        if (blocked) {
+          this.sp.Game.disablePlayerControls(true, false, false, false, false, false, false, false, 0);
+        } else {
+          this.sp.Game.enablePlayerControls(true, false, false, false, false, false, false, false, 0);
+        }
+      } catch (e) {
+        // Never leave somebody unable to move because a call failed. If the
+        // block could not be applied, this end must not go on believing it
+        // was, or the release would be skipped as unnecessary.
+        this.movementBlocked = !blocked;
+        logError(this, `could not ${blocked ? "block" : "release"} movement: ${e}`);
+      }
+    });
+  }
+
+  private movementBlocked = false;
 
   private onceUpdate() {
     this.sp.browser.setVisible(true);
@@ -93,6 +134,17 @@ export class BrowserService extends ClientListener {
    * empty; the check above makes the common case a single comparison.
    */
   private onUpdate() {
+    // Movement stays blocked only while the browser actually has the keyboard.
+    //
+    // Checked here rather than trusted, for the same reason the menu tally is:
+    // being unable to walk is a far worse thing to be stuck with than a menu
+    // counted wrongly, and anything that takes focus away without coming
+    // through setBrowserFocused would otherwise leave it that way for the rest
+    // of the session.
+    if (this.movementBlocked && !this.sp.browser.isFocused()) {
+      this.applyMovementBlock(false);
+    }
+
     if (this.badMenusOpen.size === 0) {
       return;
     }
@@ -127,8 +179,7 @@ export class BrowserService extends ClientListener {
       // with instead of the browser, so taking focus back is right for all of
       // them, not only the race menu.
       if (this.sp.browser.isFocused()) {
-        this.sp.browser.setFocused(false);
-        this.sp.browser.executeJavaScript(unfocusEventString);
+        this.setBrowserFocused(false);
       }
       this.badMenusOpen.add(e.name);
     } else if (e.name === Menu.HUD) {
