@@ -1132,10 +1132,24 @@ export class RemoteServer extends ClientListener {
         return;
       }
 
+      // A cast can arrive with no animation variables on it, and did.
+      //
+      // The sender fills this in from its own actor, and when that comes back
+      // with nothing the field is simply absent from the message. Read
+      // straight through, that threw on every reader near the caster, once per
+      // message, from inside once('update'): one person casting flooded
+      // everybody around them with hundreds of identical exceptions and
+      // nothing anywhere naming the cause.
+      //
+      // Empty rather than skipped, so the spell is still seen. Animation
+      // variables decide how the cast looks, not whether it happens, and a
+      // healer whose spell is invisible to the person being healed is a worse
+      // outcome than one whose hands are in the wrong pose.
+      const sentVariables = msg.data.actorAnimationVariables;
       const actorAnimationVariables: ActorAnimationVariables = {
-        booleans: new Uint8Array(msg.data.actorAnimationVariables.booleans),
-        floats: new Uint8Array(msg.data.actorAnimationVariables.floats),
-        integers: new Uint8Array(msg.data.actorAnimationVariables.integers)
+        booleans: new Uint8Array(sentVariables?.booleans ?? []),
+        floats: new Uint8Array(sentVariables?.floats ?? []),
+        integers: new Uint8Array(sentVariables?.integers ?? [])
       };
 
       if (msg.data.interruptCast) {
@@ -1160,10 +1174,20 @@ export class RemoteServer extends ClientListener {
         return;
       }
 
+      // The same unguarded read as onSpellCastMessage above, and the same
+      // flood. Returned from rather than emptied, which is the one difference
+      // between the two: this message exists only to carry these variables, so
+      // an empty set is a message with nothing in it, and applying it would be
+      // work done to no effect.
+      const sentVariables = msg.data.actorAnimationVariables;
+      if (!sentVariables) {
+        return;
+      }
+
       const actorAnimationVariables: ActorAnimationVariables = {
-        booleans: new Uint8Array(msg.data.actorAnimationVariables.booleans),
-        floats: new Uint8Array(msg.data.actorAnimationVariables.floats),
-        integers: new Uint8Array(msg.data.actorAnimationVariables.integers)
+        booleans: new Uint8Array(sentVariables.booleans),
+        floats: new Uint8Array(sentVariables.floats),
+        integers: new Uint8Array(sentVariables.integers)
       };
 
       const isApplyed = applyAnimationVariablesToActor(ac.getFormID(), actorAnimationVariables);
