@@ -780,6 +780,17 @@ export class FormView {
    * the local player's own list, since "have I met them" is a fact about the
    * viewer, not something a target broadcasts about itself. A game master's
    * own list carries an "all" sentinel instead of a real array.
+   *
+   * Matched on the remote id, not on refrId, and the difference is the whole
+   * of why introducing yourself did nothing. The two lookups on either side of
+   * this one are keyed opposite ways and both are right: hhSerials is written
+   * by a property snippet running on this machine, which sees local ids, so it
+   * is keyed locally. hhMet is written by the server out of one actor's own
+   * met list, which holds server side actor ids. Every other player is a
+   * runtime form, numbered differently on every machine, so comparing the
+   * server's number against this machine's matched only by coincidence.
+   * Nobody was ever recognised, both sides shook hands and both went on seeing
+   * a stranger.
    */
   private haveMetLocalPlayer(): boolean {
     try {
@@ -791,7 +802,11 @@ export class FormView {
       if (met.all === true) {
         return true;
       }
-      return Array.isArray(met.ids) && met.ids.includes(this.refrId as number);
+      const remoteRefrId = this.getRemoteRefrId();
+      if (remoteRefrId === undefined) {
+        return false;
+      }
+      return Array.isArray(met.ids) && met.ids.includes(remoteRefrId);
     } catch (e) {
       return false;
     }
