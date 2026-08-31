@@ -71,12 +71,18 @@ float ConditionFunctions::SkympGetDistanceFromHome::Execute(
     // "not measurable from here". Every bandit hideout in the province sat at
     // the same difficulty regardless of where its door was.
     //
-    // The anchor is the last distance this actor was measured at while it was
-    // somewhere this function could measure, written by the gamemode. For an
-    // interior that is the doorstep, because the last outdoor ground anybody
-    // stands on before going in is the ground the door is on. So an interior
-    // inherits the band of its door, which is what a place a short walk from
-    // home should feel like whether the roof is over it or not.
+    // The anchor is written by the gamemode from the last ground it could
+    // measure this actor on, which for an interior is the doorstep: the last
+    // outdoor ground anybody stands on before going in is the ground the door
+    // is on.
+    //
+    // Not the doorstep exactly, though. The gamemode steps it one band out
+    // while the actor is indoors, because inheriting the door unchanged left a
+    // barrow beside the settlement exactly as dangerous as the hillside you
+    // crossed to reach it, and going indoors is going somewhere. Distance
+    // still decides and the roof is a nudge: a barrow two holds away is still
+    // several bands past one next door. What that step is belongs to whoever
+    // configures the bands, so it is decided there rather than here.
     //
     // Costs one string comparison per hit for anybody standing outdoors, and
     // is only read at all when the position cannot be used directly.
